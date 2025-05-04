@@ -136,6 +136,12 @@ ENV/
 env.bak/
 venv.bak/
 
+# Ignore environment file and generated data directories
+.env
+branch_json/
+repo_branch_states/
+repo_full_json/
+
 # Spyder project settings
 .spyderproject
 .spyproject

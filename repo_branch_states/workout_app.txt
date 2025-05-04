@@ -1,3 +1,0 @@
-feature/ai-exercise-generator
-feature/o1-mini-model
-main
