@@ -1,0 +1,200 @@
+{
+  "_links": {
+    "html": "https://github.com/carl-m-healy/workout_app/tree/feature/ai-exercise-generator",
+    "self": "https://api.github.com/repos/carl-m-healy/workout_app/branches/feature/ai-exercise-generator"
+  },
+  "commit": {
+    "author": {
+      "avatar_url": "https://avatars.githubusercontent.com/u/62735761?v=4",
+      "events_url": "https://api.github.com/users/carl-m-healy/events{/privacy}",
+      "followers_url": "https://api.github.com/users/carl-m-healy/followers",
+      "following_url": "https://api.github.com/users/carl-m-healy/following{/other_user}",
+      "gists_url": "https://api.github.com/users/carl-m-healy/gists{/gist_id}",
+      "gravatar_id": "",
+      "html_url": "https://github.com/carl-m-healy",
+      "id": 62735761,
+      "login": "carl-m-healy",
+      "node_id": "MDQ6VXNlcjYyNzM1NzYx",
+      "organizations_url": "https://api.github.com/users/carl-m-healy/orgs",
+      "received_events_url": "https://api.github.com/users/carl-m-healy/received_events",
+      "repos_url": "https://api.github.com/users/carl-m-healy/repos",
+      "site_admin": false,
+      "starred_url": "https://api.github.com/users/carl-m-healy/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/carl-m-healy/subscriptions",
+      "type": "User",
+      "url": "https://api.github.com/users/carl-m-healy",
+      "user_view_type": "public"
+    },
+    "comments_url": "https://api.github.com/repos/carl-m-healy/workout_app/commits/71ca6c6d02d3f00ba6360600342489db8d366439/comments",
+    "commit": {
+      "author": {
+        "date": "2024-12-28T17:56:24Z",
+        "email": "carl.m.healy@gmail.com",
+        "name": "Carl"
+      },
+      "comment_count": 0,
+      "committer": {
+        "date": "2024-12-28T17:56:24Z",
+        "email": "carl.m.healy@gmail.com",
+        "name": "Carl"
+      },
+      "message": "Fix AI agent implementation and add error handling",
+      "tree": {
+        "sha": "af7f1fa5f4573e38d7cc2516514ff2083b909868",
+        "url": "https://api.github.com/repos/carl-m-healy/workout_app/git/trees/af7f1fa5f4573e38d7cc2516514ff2083b909868"
+      },
+      "url": "https://api.github.com/repos/carl-m-healy/workout_app/git/commits/71ca6c6d02d3f00ba6360600342489db8d366439",
+      "verification": {
+        "payload": null,
+        "reason": "unsigned",
+        "signature": null,
+        "verified": false,
+        "verified_at": null
+      }
+    },
+    "committer": {
+      "avatar_url": "https://avatars.githubusercontent.com/u/62735761?v=4",
+      "events_url": "https://api.github.com/users/carl-m-healy/events{/privacy}",
+      "followers_url": "https://api.github.com/users/carl-m-healy/followers",
+      "following_url": "https://api.github.com/users/carl-m-healy/following{/other_user}",
+      "gists_url": "https://api.github.com/users/carl-m-healy/gists{/gist_id}",
+      "gravatar_id": "",
+      "html_url": "https://github.com/carl-m-healy",
+      "id": 62735761,
+      "login": "carl-m-healy",
+      "node_id": "MDQ6VXNlcjYyNzM1NzYx",
+      "organizations_url": "https://api.github.com/users/carl-m-healy/orgs",
+      "received_events_url": "https://api.github.com/users/carl-m-healy/received_events",
+      "repos_url": "https://api.github.com/users/carl-m-healy/repos",
+      "site_admin": false,
+      "starred_url": "https://api.github.com/users/carl-m-healy/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/carl-m-healy/subscriptions",
+      "type": "User",
+      "url": "https://api.github.com/users/carl-m-healy",
+      "user_view_type": "public"
+    },
+    "html_url": "https://github.com/carl-m-healy/workout_app/commit/71ca6c6d02d3f00ba6360600342489db8d366439",
+    "node_id": "C_kwDONjTMy9oAKDcxY2E2YzZkMDJkM2YwMGJhNjM2MDYwMDM0MjQ4OWRiOGQzNjY0Mzk",
+    "parents": [
+      {
+        "html_url": "https://github.com/carl-m-healy/workout_app/commit/e250c4efd155f2488d85aa9390757f1b300355f8",
+        "sha": "e250c4efd155f2488d85aa9390757f1b300355f8",
+        "url": "https://api.github.com/repos/carl-m-healy/workout_app/commits/e250c4efd155f2488d85aa9390757f1b300355f8"
+      }
+    ],
+    "sha": "71ca6c6d02d3f00ba6360600342489db8d366439",
+    "url": "https://api.github.com/repos/carl-m-healy/workout_app/commits/71ca6c6d02d3f00ba6360600342489db8d366439"
+  },
+  "commit_full": {
+    "author": {
+      "avatar_url": "https://avatars.githubusercontent.com/u/62735761?v=4",
+      "events_url": "https://api.github.com/users/carl-m-healy/events{/privacy}",
+      "followers_url": "https://api.github.com/users/carl-m-healy/followers",
+      "following_url": "https://api.github.com/users/carl-m-healy/following{/other_user}",
+      "gists_url": "https://api.github.com/users/carl-m-healy/gists{/gist_id}",
+      "gravatar_id": "",
+      "html_url": "https://github.com/carl-m-healy",
+      "id": 62735761,
+      "login": "carl-m-healy",
+      "node_id": "MDQ6VXNlcjYyNzM1NzYx",
+      "organizations_url": "https://api.github.com/users/carl-m-healy/orgs",
+      "received_events_url": "https://api.github.com/users/carl-m-healy/received_events",
+      "repos_url": "https://api.github.com/users/carl-m-healy/repos",
+      "site_admin": false,
+      "starred_url": "https://api.github.com/users/carl-m-healy/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/carl-m-healy/subscriptions",
+      "type": "User",
+      "url": "https://api.github.com/users/carl-m-healy",
+      "user_view_type": "public"
+    },
+    "comments_url": "https://api.github.com/repos/carl-m-healy/workout_app/commits/71ca6c6d02d3f00ba6360600342489db8d366439/comments",
+    "commit": {
+      "author": {
+        "date": "2024-12-28T17:56:24Z",
+        "email": "carl.m.healy@gmail.com",
+        "name": "Carl"
+      },
+      "comment_count": 0,
+      "committer": {
+        "date": "2024-12-28T17:56:24Z",
+        "email": "carl.m.healy@gmail.com",
+        "name": "Carl"
+      },
+      "message": "Fix AI agent implementation and add error handling",
+      "tree": {
+        "sha": "af7f1fa5f4573e38d7cc2516514ff2083b909868",
+        "url": "https://api.github.com/repos/carl-m-healy/workout_app/git/trees/af7f1fa5f4573e38d7cc2516514ff2083b909868"
+      },
+      "url": "https://api.github.com/repos/carl-m-healy/workout_app/git/commits/71ca6c6d02d3f00ba6360600342489db8d366439",
+      "verification": {
+        "payload": null,
+        "reason": "unsigned",
+        "signature": null,
+        "verified": false,
+        "verified_at": null
+      }
+    },
+    "committer": {
+      "avatar_url": "https://avatars.githubusercontent.com/u/62735761?v=4",
+      "events_url": "https://api.github.com/users/carl-m-healy/events{/privacy}",
+      "followers_url": "https://api.github.com/users/carl-m-healy/followers",
+      "following_url": "https://api.github.com/users/carl-m-healy/following{/other_user}",
+      "gists_url": "https://api.github.com/users/carl-m-healy/gists{/gist_id}",
+      "gravatar_id": "",
+      "html_url": "https://github.com/carl-m-healy",
+      "id": 62735761,
+      "login": "carl-m-healy",
+      "node_id": "MDQ6VXNlcjYyNzM1NzYx",
+      "organizations_url": "https://api.github.com/users/carl-m-healy/orgs",
+      "received_events_url": "https://api.github.com/users/carl-m-healy/received_events",
+      "repos_url": "https://api.github.com/users/carl-m-healy/repos",
+      "site_admin": false,
+      "starred_url": "https://api.github.com/users/carl-m-healy/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/carl-m-healy/subscriptions",
+      "type": "User",
+      "url": "https://api.github.com/users/carl-m-healy",
+      "user_view_type": "public"
+    },
+    "files": [
+      {
+        "additions": 4,
+        "blob_url": "https://github.com/carl-m-healy/workout_app/blob/71ca6c6d02d3f00ba6360600342489db8d366439/ai_agent%2Fapp%2Fmain.py",
+        "changes": 9,
+        "contents_url": "https://api.github.com/repos/carl-m-healy/workout_app/contents/ai_agent%2Fapp%2Fmain.py?ref=71ca6c6d02d3f00ba6360600342489db8d366439",
+        "deletions": 5,
+        "filename": "ai_agent/app/main.py",
+        "patch": "@@ -84,10 +84,9 @@ async def generate_exercise_data(name: str) -> Exercise:\n             model=\"gpt-4\",\n             messages=[\n                 {\"role\": \"system\", \"content\": system_prompt},\n-                {\"role\": \"user\", \"content\": f\"Generate detailed information for the exercise: {name}\"}\n+                {\"role\": \"user\", \"content\": f\"Generate detailed information for the exercise: {name}. Respond with valid JSON only, no additional text.\"}\n             ],\n-            temperature=0.7,\n-            response_format={\"type\": \"json_object\"}\n+            temperature=0.7\n         )\n         \n         exercise_data = json.loads(response.choices[0].message.content)\n@@ -101,7 +100,7 @@ async def generate_exercise_data(name: str) -> Exercise:\n async def check_exercise_exists(name: str) -> bool:\n     async with httpx.AsyncClient() as client:\n         try:\n-            response = await client.get(f\"{API_URL}/exercises/search?name={name}\")\n+            response = await client.get(f\"{API_URL}/exercises/search/?query={name}\")\n             exercises = response.json()\n             return len(exercises) > 0\n         except httpx.RequestError:\n@@ -111,7 +110,7 @@ async def create_exercise(exercise_data: dict) -> dict:\n     async with httpx.AsyncClient() as client:\n         try:\n             response = await client.post(f\"{API_URL}/exercises/\", json=exercise_data)\n-            if response.status_code == 201:\n+            if response.status_code in [200, 201]:\n                 return response.json()\n             else:\n                 raise HTTPException(",
+        "raw_url": "https://github.com/carl-m-healy/workout_app/raw/71ca6c6d02d3f00ba6360600342489db8d366439/ai_agent%2Fapp%2Fmain.py",
+        "sha": "7e5edb2d100157a30d6cb03032f1c0b8a9042c14",
+        "status": "modified"
+      }
+    ],
+    "html_url": "https://github.com/carl-m-healy/workout_app/commit/71ca6c6d02d3f00ba6360600342489db8d366439",
+    "node_id": "C_kwDONjTMy9oAKDcxY2E2YzZkMDJkM2YwMGJhNjM2MDYwMDM0MjQ4OWRiOGQzNjY0Mzk",
+    "parents": [
+      {
+        "html_url": "https://github.com/carl-m-healy/workout_app/commit/e250c4efd155f2488d85aa9390757f1b300355f8",
+        "sha": "e250c4efd155f2488d85aa9390757f1b300355f8",
+        "url": "https://api.github.com/repos/carl-m-healy/workout_app/commits/e250c4efd155f2488d85aa9390757f1b300355f8"
+      }
+    ],
+    "sha": "71ca6c6d02d3f00ba6360600342489db8d366439",
+    "stats": {
+      "additions": 4,
+      "deletions": 5,
+      "total": 9
+    },
+    "url": "https://api.github.com/repos/carl-m-healy/workout_app/commits/71ca6c6d02d3f00ba6360600342489db8d366439"
+  },
+  "name": "feature/ai-exercise-generator",
+  "protected": false,
+  "protection": {
+    "enabled": false,
+    "required_status_checks": {
+      "checks": [],
+      "contexts": [],
+      "enforcement_level": "off"
+    }
+  },
+  "protection_url": "https://api.github.com/repos/carl-m-healy/workout_app/branches/feature/ai-exercise-generator/protection"
+}
