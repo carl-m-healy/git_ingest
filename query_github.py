@@ -15,9 +15,11 @@ allows access to private repositories owned by the user.
 """
 import argparse
 import json
+import logging
 import os
 import re
 import sys
+from datetime import datetime
 from typing import Dict, List
 
 import requests
@@ -25,11 +27,14 @@ from dotenv import load_dotenv
 from pathlib import Path
 
 API_BASE = "https://api.github.com"
+API_CALL_COUNT = 0
 load_dotenv()
 
 
 def _github_get(url: str, headers: dict) -> requests.Response:
     """Perform a GET request and raise helpful errors on failure."""
+    global API_CALL_COUNT
+    API_CALL_COUNT += 1
     resp = requests.get(url, headers=headers)
     try:
         resp.raise_for_status()
@@ -163,6 +168,7 @@ def list_repos_branches(username: str, token: str | None = None) -> Dict[str, Li
 
     repos = fetch_repos(username, headers)
     if not repos:
+        logger.warning("No repositories found for %s", username)
         print("No repositories found for", username)
         return {}
     result: Dict[str, List[str]] = {}
@@ -171,6 +177,7 @@ def list_repos_branches(username: str, token: str | None = None) -> Dict[str, Li
         try:
             result[name] = fetch_branches(username, name, headers)
         except SystemExit as err:
+            logger.warning("Skipping %s: %s", name, err)
             print(f"[warn] Skipping {name}: {err}", file=sys.stderr)
     return result
 
@@ -197,6 +204,7 @@ def persist_branches(repo_br_map: Dict[str, List[str]], out_dir: str) -> None:
             removed = old_set - new_set
         file.write_text("\n".join(sorted(new_set)) + "\n")
         if added or removed:
+            logger.info("%s: +%d -%d branches updated", repo, len(added), len(removed))
             print(f"{repo}: +{len(added)} -{len(removed)} branches updated")
 
 
@@ -212,6 +220,7 @@ def persist_repo_json(repo_data: Dict[str, dict], out_dir: str) -> None:
             changed = False
         file.write_text(serialized + "\n")
         if changed:
+            logger.info("%s: JSON updated (size %d bytes)", name, len(serialized))
             print(f"{name}: JSON updated (size {len(serialized)} bytes)")
 
 
@@ -230,6 +239,7 @@ def persist_branch_json(branch_map: Dict[str, List[dict]], out_dir: str) -> None
                 changed = False
             file.write_text(serialized + "\n")
             if changed:
+                logger.info("%s/%s: branch JSON updated", repo, br.get("name"))
                 print(f"{repo}/{br.get('name')}: branch JSON updated")
 
 
@@ -249,6 +259,7 @@ def persist_tag_json(tag_map: Dict[str, List[dict]], out_dir: str) -> None:
                 changed = False
             file.write_text(serialized + "\n")
             if changed:
+                logger.info("%s/%s: tag JSON updated", repo, name)
                 print(f"{repo}/{name}: tag JSON updated")
 
 
@@ -261,7 +272,21 @@ def cli() -> None:
     parser.add_argument("--save-json-dir", help="Directory to persist full repo + branches JSON file")
     parser.add_argument("--save-branch-json-dir", help="Directory to persist each branch JSON individually")
     parser.add_argument("--save-tag-json-dir", help="Directory to persist each tag JSON individually")
+    parser.add_argument("--log-dir", default="logs", help="Directory to save timestamped logs")
     args = parser.parse_args()
+
+    global logger
+    debug_log_dir = Path(args.log_dir)
+    debug_log_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+    log_file = debug_log_dir / f"{Path(sys.argv[0]).stem}_{timestamp}.log"
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%dT%H:%M:%S%z")
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+    logger.info("Starting query_github run for user: %s", args.username)
 
     token = args.token or os.getenv("GITHUB_TOKEN")
     data = list_repos_branches(args.username, token)
@@ -302,6 +327,8 @@ def cli() -> None:
 
         if args.save_tag_json_dir:
             persist_tag_json(tag_map, args.save_tag_json_dir)
+
+    logger.info("Total GitHub API calls: %d", API_CALL_COUNT)
 
 
 if __name__ == "__main__":
