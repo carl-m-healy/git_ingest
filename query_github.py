@@ -8,6 +8,7 @@ Usage:
   python query_github.py carl-m-healy            # unauthenticated (public repos)
   python query_github.py carl-m-healy --json     # pretty-print JSON
   python query_github.py carl-m-healy --token <PERSONAL_ACCESS_TOKEN>
+  python query_github.py carl-m-healy --graphql  # use GitHub GraphQL API (v4)
 
 The token can also be provided via the GITHUB_TOKEN environment variable.
 Providing a token increases the rate-limit to 5,000 requests per hour and
@@ -19,6 +20,7 @@ import logging
 import os
 import re
 import sys
+import textwrap
 from datetime import datetime
 from typing import Dict, List
 
@@ -27,6 +29,7 @@ from dotenv import load_dotenv
 from pathlib import Path
 
 API_BASE = "https://api.github.com"
+GRAPHQL_ENDPOINT = "https://api.github.com/graphql"
 API_CALL_COUNT = 0
 load_dotenv()
 
@@ -42,6 +45,31 @@ def _github_get(url: str, headers: dict) -> requests.Response:
         msg = f"GitHub API error {resp.status_code}: {resp.text} ({url})"
         raise SystemExit(msg) from exc
     return resp
+
+
+def _github_graphql(query: str, variables: dict, headers: dict) -> dict:
+    """Execute a GitHub GraphQL query and return the data payload.
+
+    Increments the global API call counter and raises SystemExit on any HTTP
+    or GraphQL error so the caller can handle failures consistently with the
+    REST helper above.
+    """
+    global API_CALL_COUNT
+    API_CALL_COUNT += 1
+    resp = requests.post(
+        GRAPHQL_ENDPOINT,
+        json={"query": query, "variables": variables},
+        headers=headers,
+    )
+    try:
+        resp.raise_for_status()
+    except requests.HTTPError as exc:
+        raise SystemExit(f"GitHub GraphQL error {resp.status_code}: {resp.text}") from exc
+
+    payload = resp.json()
+    if payload.get("errors"):
+        raise SystemExit(f"GitHub GraphQL errors: {payload['errors']}")
+    return payload.get("data", {})
 
 
 def _sanitize(name: str) -> str:
@@ -182,6 +210,259 @@ def list_repos_branches(username: str, token: str | None = None) -> Dict[str, Li
     return result
 
 
+def list_repos_branches_graphql(username: str, token: str) -> Dict[str, List[str]]:
+    """Return mapping {repo_name: [branch, ...]} using GitHub GraphQL v4.
+
+    Retrieves repositories in batches of 100 and, for each repository, grabs
+    up to 100 branches per request (paginating when necessary). Because the
+    GraphQL API allows nested data to be fetched in a single call, this
+    approach typically requires an order-of-magnitude fewer HTTP requests
+    compared to the REST fallback above.
+    """
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"bearer {token}",
+    }
+
+    result: Dict[str, List[str]] = {}
+    repo_after: str | None = None
+
+    while True:
+        repo_query = textwrap.dedent(
+            """
+            query($login: String!, $after: String) {
+              user(login: $login) {
+                repositories(first: 100, after: $after, ownerAffiliations: OWNER) {
+                  pageInfo { hasNextPage endCursor }
+                  nodes {
+                    name
+                    refs(refPrefix: \"refs/heads/\", first: 100) {
+                      pageInfo { hasNextPage endCursor }
+                      nodes { name }
+                    }
+                  }
+                }
+              }
+            }
+            """
+        )
+
+        data = _github_graphql(repo_query, {"login": username, "after": repo_after}, headers)
+        user = data.get("user") or {}
+        repos_conn = user.get("repositories") or {}
+
+        for repo_node in repos_conn.get("nodes", []):
+            repo_name = repo_node["name"]
+            branches: List[str] = [ref["name"] for ref in repo_node["refs"]["nodes"]]
+
+            # Paginate branches if more than 100 exist
+            br_after = repo_node["refs"]["pageInfo"].get("endCursor")
+            br_has_next = repo_node["refs"]["pageInfo"].get("hasNextPage")
+            while br_has_next:
+                branch_query = textwrap.dedent(
+                    """
+                    query($owner: String!, $name: String!, $after: String!) {
+                      repository(owner: $owner, name: $name) {
+                        refs(refPrefix: \"refs/heads/\", first: 100, after: $after) {
+                          pageInfo { hasNextPage endCursor }
+                          nodes { name }
+                        }
+                      }
+                    }
+                    """
+                )
+                br_data = _github_graphql(
+                    branch_query,
+                    {"owner": username, "name": repo_name, "after": br_after},
+                    headers,
+                )
+                refs = br_data["repository"]["refs"]
+                branches.extend([ref["name"] for ref in refs["nodes"]])
+                br_after = refs["pageInfo"].get("endCursor")
+                br_has_next = refs["pageInfo"].get("hasNextPage")
+
+            result[repo_name] = branches
+
+        # Pagination for repositories
+        if not repos_conn.get("pageInfo", {}).get("hasNextPage"):
+            break
+        repo_after = repos_conn["pageInfo"].get("endCursor")
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# GraphQL full-detail helpers ------------------------------------------------
+# ---------------------------------------------------------------------------
+
+def _paginate_refs_graphql(owner: str, repo: str, after: str, ref_prefix: str, headers: dict) -> list[dict]:
+    """Return additional ref nodes (>100) for *repo* after *cursor*.
+
+    *ref_prefix* must be either "refs/heads/" or "refs/tags/". Each call
+    returns up to 100 nodes; we loop internally until the pages are
+    exhausted so the caller receives a complete list.
+    """
+    all_nodes: list[dict] = []
+    while after:
+        query = textwrap.dedent(
+            f"""
+            query($owner: String!, $name: String!, $after: String!) {{
+              repository(owner: $owner, name: $name) {{
+                refs(refPrefix: \"{ref_prefix}\", first: 100, after: $after) {{
+                  pageInfo {{ hasNextPage endCursor }}
+                  nodes {{
+                    name
+                    target {{
+                      ... on Commit {{
+                        oid
+                        committedDate
+                        messageHeadline
+                        author {{ name email date }}
+                        committer {{ name email date }}
+                      }}
+                    }}
+                  }}
+                }}
+              }}
+            }}
+            """
+        )
+
+        data = _github_graphql(query, {"owner": owner, "name": repo, "after": after}, headers)
+        refs = data["repository"]["refs"]
+        all_nodes.extend(refs["nodes"])
+        if refs["pageInfo"]["hasNextPage"]:
+            after = refs["pageInfo"]["endCursor"]
+        else:
+            after = None
+    return all_nodes
+
+
+def fetch_repos_full_graphql(username: str, token: str, include_tags: bool) -> tuple[dict, dict, dict]:
+    """Return (repo_map, branches_map, tags_map) with full details via GraphQL.
+
+    *repo_map*   : repo_name → raw repository dictionary (includes first 100 refs)
+    *branches_map*: repo_name → list of branch dictionaries (each with commit data)
+    *tags_map*   : repo_name → list of tag dictionaries
+    """
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"bearer {token}",
+    }
+
+    repo_after: str | None = None
+    repos: dict[str, dict] = {}
+    branch_map: dict[str, list[dict]] = {}
+    tag_map: dict[str, list[dict]] = {}
+
+    while True:
+        query = textwrap.dedent(
+            """
+            query($login: String!, $after: String) {
+              user(login: $login) {
+                repositories(first: 100, after: $after, ownerAffiliations: OWNER) {
+                  pageInfo { hasNextPage endCursor }
+                  nodes {
+                    name
+                    url
+                    description
+                    isPrivate
+                    isFork
+                    defaultBranchRef { name }
+                    refs(refPrefix: \"refs/heads/\", first: 100) {
+                      pageInfo { hasNextPage endCursor }
+                      nodes {
+                        name
+                        target {
+                          ... on Commit {
+                            oid
+                            committedDate
+                            messageHeadline
+                            author { name email date }
+                            committer { name email date }
+                          }
+                        }
+                      }
+                    }
+                    tagRefs: refs(refPrefix: \"refs/tags/\", first: 100) {
+                      pageInfo { hasNextPage endCursor }
+                      nodes {
+                        name
+                        target {
+                          ... on Commit {
+                            oid
+                            committedDate
+                            messageHeadline
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            """
+        )
+
+        data = _github_graphql(query, {"login": username, "after": repo_after}, headers)
+        repos_conn = data["user"]["repositories"]
+
+        for node in repos_conn.get("nodes", []):
+            name: str = node["name"]
+            repos[name] = node
+
+            # Normalize branch nodes to REST-like structure
+            def _norm_branch(n: dict) -> dict:
+                tgt = n.pop("target", {})
+                n["commit_full"] = tgt
+                n["commit"] = {"sha": tgt.get("oid"), "message": tgt.get("messageHeadline")}
+                return n
+
+            branches = [_norm_branch(b) for b in node["refs"]["nodes"]]
+            if node["refs"]["pageInfo"]["hasNextPage"]:
+                after = node["refs"]["pageInfo"]["endCursor"]
+                extra = _paginate_refs_graphql(username, name, after, "refs/heads/", headers)
+                branches.extend([_norm_branch(b) for b in extra])
+            # Enrich each branch with full commit detail via REST so output matches REST persistence
+            for br in branches:
+                sha = br.get("commit", {}).get("sha")
+                if sha and ("url" not in br.get("commit_full", {})):
+                    try:
+                        commit_json = _github_get(f"{API_BASE}/repos/{username}/{name}/commits/{sha}", headers=headers).json()
+                        br["commit_full"] = commit_json
+                        if commit_json.get("commit"):
+                            br["commit"]["message"] = commit_json["commit"].get("message")
+                    except SystemExit:
+                        pass
+            branch_map[name] = branches
+
+            # Tags (optional)
+            if include_tags:
+                tags = list(node["tagRefs"]["nodes"])
+                if node["tagRefs"]["pageInfo"]["hasNextPage"]:
+                    after_t = node["tagRefs"]["pageInfo"]["endCursor"]
+                    tags.extend(_paginate_refs_graphql(username, name, after_t, "refs/tags/", headers))
+                # Enrich tag commits with full REST data
+                for tg in tags:
+                    sha = None
+                    if isinstance(tg.get("target"), dict):
+                        sha = tg["target"].get("oid")
+                    if sha and ("commit_full" not in tg):
+                        try:
+                            commit_json = _github_get(f"{API_BASE}/repos/{username}/{name}/commits/{sha}", headers=headers).json()
+                            tg["commit_full"] = commit_json
+                            tg["commit"] = {"sha": sha, "message": commit_json.get("commit", {}).get("message")}
+                        except SystemExit:
+                            pass
+                tag_map[name] = tags
+
+        if not repos_conn.get("pageInfo", {}).get("hasNextPage"):
+            break
+        repo_after = repos_conn["pageInfo"].get("endCursor")
+
+    return repos, branch_map, tag_map
+
+
 def persist_branches(repo_br_map: Dict[str, List[str]], out_dir: str) -> None:
     """Write each repo's branches to a file inside *out_dir*.
 
@@ -268,6 +549,7 @@ def cli() -> None:
     parser.add_argument("username", help="GitHub username to query")
     parser.add_argument("--token", help="GitHub Personal Access Token (or set GITHUB_TOKEN env var)")
     parser.add_argument("--json", action="store_true", help="Output result as JSON")
+    parser.add_argument("--graphql", action="store_true", help="Use GitHub GraphQL API (v4) to minimise HTTP requests")
     parser.add_argument("--save-dir", help="Directory to persist per-repo branch files (overwrites old state)")
     parser.add_argument("--save-json-dir", help="Directory to persist full repo + branches JSON file")
     parser.add_argument("--save-branch-json-dir", help="Directory to persist each branch JSON individually")
@@ -289,7 +571,88 @@ def cli() -> None:
     logger.info("Starting query_github run for user: %s", args.username)
 
     token = args.token or os.getenv("GITHUB_TOKEN")
-    data = list_repos_branches(args.username, token)
+    if args.graphql:
+        if not token:
+            parser.error("--graphql requires --token or GITHUB_TOKEN environment variable")
+
+        # When persisting additional JSON we need full detail.
+        need_full = bool(
+            args.save_json_dir or args.save_branch_json_dir or args.save_tag_json_dir
+        )
+
+        if need_full:
+            include_tags = bool(args.save_tag_json_dir or args.save_json_dir)
+            repo_map, branch_map, tag_map = fetch_repos_full_graphql(args.username, token, include_tags)
+
+            data = {name: [br["name"] for br in branches] for name, branches in branch_map.items()}
+
+            if args.save_dir:
+                persist_branches(data, args.save_dir)
+
+            if args.save_json_dir:
+                full_map = {
+                    name: {
+                        "repo": repo_map[name],
+                        "branches": branch_map[name],
+                        "tags": tag_map.get(name, []),
+                    }
+                    for name in repo_map
+                }
+                persist_repo_json(full_map, args.save_json_dir)
+
+            if args.save_branch_json_dir:
+                persist_branch_json(branch_map, args.save_branch_json_dir)
+
+            if args.save_tag_json_dir and include_tags:
+                persist_tag_json(tag_map, args.save_tag_json_dir)
+
+        else:
+            # Simple branch-name listing only
+            data = list_repos_branches_graphql(args.username, token)
+
+    else:
+        data = list_repos_branches(args.username, token)
+
+        # REST persistence (branches / full JSON / tags)
+        if args.save_dir:
+            persist_branches(data, args.save_dir)
+
+        if args.save_json_dir or args.save_branch_json_dir or args.save_tag_json_dir:
+            full_map: Dict[str, dict] = {}
+            branch_map: Dict[str, List[dict]] = {}
+            tag_map: Dict[str, List[dict]] = {}
+
+            headers = {"Accept": "application/vnd.github+json"}
+            if token:
+                headers["Authorization"] = f"token {token}"
+
+            for repo in fetch_repos(args.username, headers):
+                name = repo["name"]
+                branches_json = fetch_branches_full(args.username, name, headers)
+                tags_json = (
+                    fetch_tags_full(args.username, name, headers)
+                    if args.save_tag_json_dir or args.save_json_dir
+                    else []
+                )
+
+                if args.save_json_dir:
+                    full_map[name] = {
+                        "repo": repo,
+                        "branches": branches_json,
+                        "tags": tags_json,
+                    }
+
+                branch_map[name] = branches_json
+                tag_map[name] = tags_json
+
+            if args.save_json_dir:
+                persist_repo_json(full_map, args.save_json_dir)
+
+            if args.save_branch_json_dir:
+                persist_branch_json(branch_map, args.save_branch_json_dir)
+
+            if args.save_tag_json_dir:
+                persist_tag_json(tag_map, args.save_tag_json_dir)
 
     if args.json:
         json.dump(data, sys.stdout, indent=2)
@@ -299,34 +662,6 @@ def cli() -> None:
             print(repo)
             for br in branches:
                 print(f"  └─ {br}")
-
-    if args.save_dir:
-        persist_branches(data, args.save_dir)
-
-    if args.save_json_dir or args.save_branch_json_dir or args.save_tag_json_dir:
-        full_map: Dict[str, dict] = {}
-        branch_map: Dict[str, List[dict]] = {}
-        tag_map: Dict[str, List[dict]] = {}
-        headers = {"Accept": "application/vnd.github+json"}
-        if token:
-            headers["Authorization"] = f"token {token}"
-        for repo in fetch_repos(args.username, headers):
-            name = repo["name"]
-            branches_json = fetch_branches_full(args.username, name, headers)
-            tags_json = fetch_tags_full(args.username, name, headers) if args.save_tag_json_dir or args.save_json_dir else []
-            if args.save_json_dir:
-                full_map[name] = {"repo": repo, "branches": branches_json, "tags": tags_json}
-            branch_map[name] = branches_json
-            tag_map[name] = tags_json
-
-        if args.save_json_dir:
-            persist_repo_json(full_map, args.save_json_dir)
-
-        if args.save_branch_json_dir:
-            persist_branch_json(branch_map, args.save_branch_json_dir)
-
-        if args.save_tag_json_dir:
-            persist_tag_json(tag_map, args.save_tag_json_dir)
 
     logger.info("Total GitHub API calls: %d", API_CALL_COUNT)
 
