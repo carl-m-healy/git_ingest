@@ -42,7 +42,7 @@ def test_list_repos_branches_graphql(monkeypatch):
 
 def test_list_repos_branches(monkeypatch, capsys):
     # empty repositories
-    monkeypatch.setattr(query_github, "fetch_repos", lambda u, h: [])
+    monkeypatch.setattr(query_github, "fetch_repos", lambda u, h, *a: [])
     result = query_github.list_repos_branches("user", None)
     assert result == {}
     captured = capsys.readouterr()
@@ -50,7 +50,7 @@ def test_list_repos_branches(monkeypatch, capsys):
 
     # skip on error
     repos = [{"name": "repo1"}]
-    monkeypatch.setattr(query_github, "fetch_repos", lambda u, h: repos)
+    monkeypatch.setattr(query_github, "fetch_repos", lambda u, h, *a: repos)
     def fake_fetch(owner, name, headers):
         raise SystemExit("error")
     monkeypatch.setattr(query_github, "fetch_branches", fake_fetch)
@@ -103,3 +103,68 @@ def test_persist_tag_json(tmp_path, capsys):
     assert data1 == {"name": "t1", "val": 1}
     captured = capsys.readouterr()
     assert "repo1/t1: tag JSON updated" in captured.out
+
+# ---------------------------------------------------------------------------
+# New tests for organisation support ---------------------------------------
+# ---------------------------------------------------------------------------
+
+def test_list_repos_branches_graphql_org(monkeypatch):
+    """GraphQL branch listing for an organisation."""
+    data = {
+        "organization": {
+            "repositories": {
+                "pageInfo": {"hasNextPage": False, "endCursor": None},
+                "nodes": [
+                    {
+                        "name": "repo1",
+                        "refs": {
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            "nodes": [{"name": "main"}, {"name": "dev"}],
+                        },
+                    },
+                    {
+                        "name": "repo2",
+                        "refs": {
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            "nodes": [{"name": "master"}],
+                        },
+                    },
+                ],
+            }
+        }
+    }
+
+    calls: list[str] = []
+
+    def fake_gql(query, variables, headers):
+        # Ensure we are querying the expected organisation login.
+        calls.append(variables["login"])
+        return data
+
+    monkeypatch.setattr(query_github, "_github_graphql", fake_gql)
+
+    result = query_github.list_repos_branches_graphql("my-org", "tok", is_org=True)
+
+    assert result == {"repo1": ["main", "dev"], "repo2": ["master"]}
+    assert calls == ["my-org"]
+
+def test_list_repos_branches_org(monkeypatch):
+    """REST branch listing for an organisation."""
+
+    repos = [{"name": "repo1"}]
+    fetch_calls: list[bool] = []
+
+    def fake_fetch_repos(login, headers, is_org=False):
+        # Capture whether organisation flag is passed through.
+        fetch_calls.append(is_org)
+        return repos
+
+    monkeypatch.setattr(query_github, "fetch_repos", fake_fetch_repos)
+
+    monkeypatch.setattr(query_github, "fetch_branches", lambda o, n, h: ["main", "dev"])
+
+    result = query_github.list_repos_branches("my-org", None, is_org=True)
+
+    assert result == {"repo1": ["main", "dev"]}
+    # Ensure we indicated organisation mode to fetch_repos
+    assert fetch_calls == [True]

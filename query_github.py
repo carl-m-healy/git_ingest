@@ -2,17 +2,18 @@
 """query_github.py
 
 Command-line utility to list all repositories and their branches for a
-specified GitHub user.
+specified GitHub user or organization.
 
 Usage:
   python query_github.py carl-m-healy            # unauthenticated (public repos)
   python query_github.py carl-m-healy --json     # pretty-print JSON
   python query_github.py carl-m-healy --token <PERSONAL_ACCESS_TOKEN>
   python query_github.py carl-m-healy --graphql  # use GitHub GraphQL API (v4)
+  python query_github.py my-org --org           # query organization instead of user
 
 The token can also be provided via the GITHUB_TOKEN environment variable.
 Providing a token increases the rate-limit to 5,000 requests per hour and
-allows access to private repositories owned by the user.
+allows access to private repositories owned by the user or organization.
 """
 import argparse
 import json
@@ -23,39 +24,51 @@ import sys
 import textwrap
 from datetime import datetime
 from typing import Dict, List
-
 import requests
 from dotenv import load_dotenv
 from pathlib import Path
+import time
+
+# Load environment variables from .env located next to this script (project root).
+# Use override=True so values in the file replace any existing environment
+# variables (e.g. a blank or outdated GITHUB_TOKEN already present in the
+# shell), ensuring the token in `.env` is actually picked up.
+PROJECT_ROOT = Path(__file__).resolve().parent
+load_dotenv(PROJECT_ROOT / ".env", override=True)
 
 API_BASE = "https://api.github.com"
 GRAPHQL_ENDPOINT = "https://api.github.com/graphql"
 API_CALL_COUNT = 0
-load_dotenv()
 
+# Module-level logger so library functions are usable without invoking the
+# `cli()` entry-point (which reconfigures logging). Tests import the module
+# directly and call helpers, therefore we need a default logger instance to
+# avoid NameError.
+logger = logging.getLogger(__name__)
 
 def _github_get(url: str, headers: dict) -> requests.Response:
-    """Perform a GET request and raise helpful errors on failure."""
+    """Perform a GET request and raise helpful errors on failure with timing."""
     global API_CALL_COUNT
     API_CALL_COUNT += 1
+    start = time.perf_counter()
     resp = requests.get(url, headers=headers)
     try:
         resp.raise_for_status()
     except requests.HTTPError as exc:
+        duration = time.perf_counter() - start
+        logger.warning("GET %s failed after %.3fs: %s", url, duration, exc)
         msg = f"GitHub API error {resp.status_code}: {resp.text} ({url})"
         raise SystemExit(msg) from exc
+    duration = time.perf_counter() - start
+    logger.debug("GET %s completed in %.3fs", url, duration)
     return resp
 
 
 def _github_graphql(query: str, variables: dict, headers: dict) -> dict:
-    """Execute a GitHub GraphQL query and return the data payload.
-
-    Increments the global API call counter and raises SystemExit on any HTTP
-    or GraphQL error so the caller can handle failures consistently with the
-    REST helper above.
-    """
+    """Execute a GitHub GraphQL query and return the data payload with timing."""
     global API_CALL_COUNT
     API_CALL_COUNT += 1
+    start = time.perf_counter()
     resp = requests.post(
         GRAPHQL_ENDPOINT,
         json={"query": query, "variables": variables},
@@ -64,7 +77,12 @@ def _github_graphql(query: str, variables: dict, headers: dict) -> dict:
     try:
         resp.raise_for_status()
     except requests.HTTPError as exc:
+        duration = time.perf_counter() - start
+        logger.warning("GraphQL request failed after %.3fs: %s", duration, exc)
         raise SystemExit(f"GitHub GraphQL error {resp.status_code}: {resp.text}") from exc
+
+    duration = time.perf_counter() - start
+    logger.debug("GraphQL request completed in %.3fs", duration)
 
     payload = resp.json()
     if payload.get("errors"):
@@ -77,7 +95,7 @@ def _sanitize(name: str) -> str:
     return name.replace("/", "__")
 
 
-def fetch_repos(username: str, headers: dict) -> List[dict]:
+def fetch_repos(username: str, headers: dict, is_org: bool = False) -> List[dict]:
     """Return the list of repository JSON objects for *username*.
     If an authentication token is present in *headers*, we use the
     `/user/repos` endpoint so private repos owned by *username* are
@@ -88,7 +106,10 @@ def fetch_repos(username: str, headers: dict) -> List[dict]:
 
     authed = "Authorization" in headers
     while True:
-        if authed:
+        if is_org:
+            # Organization repositories endpoint (public + private with proper permissions)
+            url = f"{API_BASE}/orgs/{username}/repos?per_page=100&type=all&page={page}"
+        elif authed:
             url = (
                 f"{API_BASE}/user/repos?per_page=100&affiliation=owner&visibility=all&page={page}"
             )
@@ -101,7 +122,8 @@ def fetch_repos(username: str, headers: dict) -> List[dict]:
 
         # If authenticated, filter so we only keep repos actually owned by the
         # *username* we are interested in (token may have access to many repos).
-        if authed:
+        if authed and not is_org:
+            # For user endpoint we may receive repos not owned by *username*; filter them.
             data = [repo for repo in data if repo.get("owner", {}).get("login") == username]
 
         repos.extend(data)
@@ -188,13 +210,13 @@ def fetch_tags_full(owner: str, repo: str, headers: dict) -> List[dict]:
     return tags
 
 
-def list_repos_branches(username: str, token: str | None = None) -> Dict[str, List[str]]:
+def list_repos_branches(username: str, token: str | None = None, is_org: bool = False) -> Dict[str, List[str]]:
     """Return mapping {repo_name: [branch, ...]} for *username*."""
     headers = {"Accept": "application/vnd.github+json"}
     if token:
         headers["Authorization"] = f"token {token}"
 
-    repos = fetch_repos(username, headers)
+    repos = fetch_repos(username, headers, is_org)
     if not repos:
         logger.warning("No repositories found for %s", username)
         print("No repositories found for", username)
@@ -210,7 +232,7 @@ def list_repos_branches(username: str, token: str | None = None) -> Dict[str, Li
     return result
 
 
-def list_repos_branches_graphql(username: str, token: str) -> Dict[str, List[str]]:
+def list_repos_branches_graphql(username: str, token: str, is_org: bool = False) -> Dict[str, List[str]]:
     """Return mapping {repo_name: [branch, ...]} using GitHub GraphQL v4.
 
     Retrieves repositories in batches of 100 and, for each repository, grabs
@@ -227,29 +249,30 @@ def list_repos_branches_graphql(username: str, token: str) -> Dict[str, List[str
     result: Dict[str, List[str]] = {}
     repo_after: str | None = None
 
+    root_field = "organization" if is_org else "user"
     while True:
         repo_query = textwrap.dedent(
-            """
-            query($login: String!, $after: String) {
-              user(login: $login) {
-                repositories(first: 100, after: $after, ownerAffiliations: OWNER) {
-                  pageInfo { hasNextPage endCursor }
-                  nodes {
+            f"""
+            query($login: String!, $after: String) {{
+              {root_field}(login: $login) {{
+                repositories(first: 100, after: $after, ownerAffiliations: OWNER) {{
+                  pageInfo {{ hasNextPage endCursor }}
+                  nodes {{
                     name
-                    refs(refPrefix: \"refs/heads/\", first: 100) {
-                      pageInfo { hasNextPage endCursor }
-                      nodes { name }
-                    }
-                  }
-                }
-              }
-            }
+                    refs(refPrefix: \"refs/heads/\", first: 100) {{
+                      pageInfo {{ hasNextPage endCursor }}
+                      nodes {{ name }}
+                    }}
+                  }}
+                }}
+              }}
+            }}
             """
         )
 
         data = _github_graphql(repo_query, {"login": username, "after": repo_after}, headers)
-        user = data.get("user") or {}
-        repos_conn = user.get("repositories") or {}
+        root_obj = data.get("organization" if is_org else "user") or {}
+        repos_conn = root_obj.get("repositories") or {}
 
         for repo_node in repos_conn.get("nodes", []):
             repo_name = repo_node["name"]
@@ -338,7 +361,7 @@ def _paginate_refs_graphql(owner: str, repo: str, after: str, ref_prefix: str, h
     return all_nodes
 
 
-def fetch_repos_full_graphql(username: str, token: str, include_tags: bool) -> tuple[dict, dict, dict]:
+def fetch_repos_full_graphql(username: str, token: str, include_tags: bool, is_org: bool = False) -> tuple[dict, dict, dict]:
     """Return (repo_map, branches_map, tags_map) with full details via GraphQL.
 
     *repo_map*   : repo_name → raw repository dictionary (includes first 100 refs)
@@ -355,57 +378,58 @@ def fetch_repos_full_graphql(username: str, token: str, include_tags: bool) -> t
     branch_map: dict[str, list[dict]] = {}
     tag_map: dict[str, list[dict]] = {}
 
+    root_field = "organization" if is_org else "user"
     while True:
         query = textwrap.dedent(
-            """
-            query($login: String!, $after: String) {
-              user(login: $login) {
-                repositories(first: 100, after: $after, ownerAffiliations: OWNER) {
-                  pageInfo { hasNextPage endCursor }
-                  nodes {
+            f"""
+            query($login: String!, $after: String) {{
+              {root_field}(login: $login) {{
+                repositories(first: 100, after: $after, ownerAffiliations: OWNER) {{
+                  pageInfo {{ hasNextPage endCursor }}
+                  nodes {{
                     name
                     url
                     description
                     isPrivate
                     isFork
-                    defaultBranchRef { name }
-                    refs(refPrefix: \"refs/heads/\", first: 100) {
-                      pageInfo { hasNextPage endCursor }
-                      nodes {
+                    defaultBranchRef {{ name }}
+                    refs(refPrefix: \"refs/heads/\", first: 100) {{
+                      pageInfo {{ hasNextPage endCursor }}
+                      nodes {{
                         name
-                        target {
-                          ... on Commit {
+                        target {{
+                          ... on Commit {{
                             oid
                             committedDate
                             messageHeadline
-                            author { name email date }
-                            committer { name email date }
-                          }
-                        }
-                      }
-                    }
-                    tagRefs: refs(refPrefix: \"refs/tags/\", first: 100) {
-                      pageInfo { hasNextPage endCursor }
-                      nodes {
+                            author {{ name email date }}
+                            committer {{ name email date }}
+                          }}
+                        }}
+                      }}
+                    }}
+                    tagRefs: refs(refPrefix: \"refs/tags/\", first: 100) {{
+                      pageInfo {{ hasNextPage endCursor }}
+                      nodes {{
                         name
-                        target {
-                          ... on Commit {
+                        target {{
+                          ... on Commit {{
                             oid
                             committedDate
                             messageHeadline
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
+                          }}
+                        }}
+                      }}
+                    }}
+                  }}
+                }}
+              }}
+            }}
             """
         )
 
         data = _github_graphql(query, {"login": username, "after": repo_after}, headers)
-        repos_conn = data["user"]["repositories"]
+        repos_conn = data[root_field]["repositories"]
 
         for node in repos_conn.get("nodes", []):
             name: str = node["name"]
@@ -496,13 +520,14 @@ def persist_repo_json(repo_data: Dict[str, dict], out_dir: str) -> None:
     for name, payload in repo_data.items():
         file = p / f"{name}.json"
         serialized = json.dumps(payload, indent=2, sort_keys=True)
+        new_content = serialized + "\n"
         changed = True
-        if file.exists() and file.read_text() == serialized:
+        if file.exists() and file.read_text() == new_content:
             changed = False
-        file.write_text(serialized + "\n")
+        file.write_text(new_content)
         if changed:
-            logger.info("%s: JSON updated (size %d bytes)", name, len(serialized))
-            print(f"{name}: JSON updated (size {len(serialized)} bytes)")
+            logger.info("%s: JSON updated (size %d bytes)", name, len(new_content))
+            print(f"{name}: JSON updated (size {len(new_content)} bytes)")
 
 
 def persist_branch_json(branch_map: Dict[str, List[dict]], out_dir: str) -> None:
@@ -515,10 +540,11 @@ def persist_branch_json(branch_map: Dict[str, List[dict]], out_dir: str) -> None
             fname = _sanitize(br.get("name", "unnamed")) + ".json"
             file = repo_dir / fname
             serialized = json.dumps(br, indent=2, sort_keys=True)
+            new_content = serialized + "\n"
             changed = True
-            if file.exists() and file.read_text() == serialized:
+            if file.exists() and file.read_text() == new_content:
                 changed = False
-            file.write_text(serialized + "\n")
+            file.write_text(new_content)
             if changed:
                 logger.info("%s/%s: branch JSON updated", repo, br.get("name"))
                 print(f"{repo}/{br.get('name')}: branch JSON updated")
@@ -535,40 +561,53 @@ def persist_tag_json(tag_map: Dict[str, List[dict]], out_dir: str) -> None:
             fname = _sanitize(name) + ".json"
             file = repo_dir / fname
             serialized = json.dumps(tg, indent=2, sort_keys=True)
+            new_content = serialized + "\n"
             changed = True
-            if file.exists() and file.read_text() == serialized:
+            if file.exists() and file.read_text() == new_content:
                 changed = False
-            file.write_text(serialized + "\n")
+            file.write_text(new_content)
             if changed:
                 logger.info("%s/%s: tag JSON updated", repo, name)
                 print(f"{repo}/{name}: tag JSON updated")
 
 
 def cli() -> None:
-    parser = argparse.ArgumentParser(description="List all GitHub repos and branches for a user.")
-    parser.add_argument("username", help="GitHub username to query")
+    parser = argparse.ArgumentParser(description="List all GitHub repos and branches for a user or organization.")
+    parser.add_argument("login", help="GitHub username or organization to query")
     parser.add_argument("--token", help="GitHub Personal Access Token (or set GITHUB_TOKEN env var)")
     parser.add_argument("--json", action="store_true", help="Output result as JSON")
     parser.add_argument("--graphql", action="store_true", help="Use GitHub GraphQL API (v4) to minimise HTTP requests")
+    parser.add_argument("--org", action="store_true", help="Treat <login> as organization rather than user")
     parser.add_argument("--save-dir", help="Directory to persist per-repo branch files (overwrites old state)")
     parser.add_argument("--save-json-dir", help="Directory to persist full repo + branches JSON file")
     parser.add_argument("--save-branch-json-dir", help="Directory to persist each branch JSON individually")
     parser.add_argument("--save-tag-json-dir", help="Directory to persist each tag JSON individually")
     parser.add_argument("--log-dir", default="logs", help="Directory to save timestamped logs")
+    parser.add_argument("--verbose", action="store_true", help="Enable verbose debug logging")
     args = parser.parse_args()
 
     global logger
+    start_time = time.perf_counter()
     debug_log_dir = Path(args.log_dir)
     debug_log_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
     log_file = debug_log_dir / f"{Path(sys.argv[0]).stem}_{timestamp}.log"
     logger = logging.getLogger()
-    logger.setLevel(logging.INFO)
+    # Capture all levels in root logger so file handler can store DEBUG logs
+    logger.setLevel(logging.DEBUG)
     formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%dT%H:%M:%S%z")
     file_handler = logging.FileHandler(log_file)
+    file_handler.setLevel(logging.DEBUG)  # store everything to file
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
-    logger.info("Starting query_github run for user: %s", args.username)
+
+    # Console handler prints INFO by default, DEBUG if --verbose specified
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.DEBUG if args.verbose else logging.INFO)
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+    entity = "organization" if args.org else "user"
+    logger.info("Starting query_github run for %s: %s", entity, args.login)
 
     token = args.token or os.getenv("GITHUB_TOKEN")
     if args.graphql:
@@ -582,7 +621,7 @@ def cli() -> None:
 
         if need_full:
             include_tags = bool(args.save_tag_json_dir or args.save_json_dir)
-            repo_map, branch_map, tag_map = fetch_repos_full_graphql(args.username, token, include_tags)
+            repo_map, branch_map, tag_map = fetch_repos_full_graphql(args.login, token, include_tags, is_org=args.org)
 
             data = {name: [br["name"] for br in branches] for name, branches in branch_map.items()}
 
@@ -608,10 +647,10 @@ def cli() -> None:
 
         else:
             # Simple branch-name listing only
-            data = list_repos_branches_graphql(args.username, token)
+            data = list_repos_branches_graphql(args.login, token, is_org=args.org)
 
     else:
-        data = list_repos_branches(args.username, token)
+        data = list_repos_branches(args.login, token, is_org=args.org)
 
         # REST persistence (branches / full JSON / tags)
         if args.save_dir:
@@ -626,11 +665,11 @@ def cli() -> None:
             if token:
                 headers["Authorization"] = f"token {token}"
 
-            for repo in fetch_repos(args.username, headers):
+            for repo in fetch_repos(args.login, headers, is_org=args.org):
                 name = repo["name"]
-                branches_json = fetch_branches_full(args.username, name, headers)
+                branches_json = fetch_branches_full(args.login, name, headers)
                 tags_json = (
-                    fetch_tags_full(args.username, name, headers)
+                    fetch_tags_full(args.login, name, headers)
                     if args.save_tag_json_dir or args.save_json_dir
                     else []
                 )
@@ -664,6 +703,7 @@ def cli() -> None:
                 print(f"  └─ {br}")
 
     logger.info("Total GitHub API calls: %d", API_CALL_COUNT)
+    logger.info("Total runtime: %.2f seconds", time.perf_counter() - start_time)
 
 
 if __name__ == "__main__":
