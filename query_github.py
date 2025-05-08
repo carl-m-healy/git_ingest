@@ -49,6 +49,10 @@ API_CALL_COUNT = 0
 REQUEST_TIMEOUT = (5, 30)  # (connect_timeout, read_timeout) in seconds
 MAX_RETRIES = 3
 
+# Paging sizes tunable via environment (smaller sizes help stay under strict proxy timeouts)
+REST_PAGE_SIZE = int(os.getenv("GITHUB_REST_PAGE_SIZE", "50"))  # default 50 items
+GRAPHQL_PAGE_SIZE = int(os.getenv("GITHUB_GRAPHQL_PAGE_SIZE", "50"))  # default 50 nodes
+
 # Module-level logger so library functions are usable without invoking the
 # `cli()` entry-point (which reconfigures logging). Tests import the module
 # directly and call helpers, therefore we need a default logger instance to
@@ -150,13 +154,13 @@ def fetch_repos(username: str, headers: dict, is_org: bool = False) -> List[dict
     while True:
         if is_org:
             # Organization repositories endpoint (public + private with proper permissions)
-            url = f"{API_BASE}/orgs/{username}/repos?per_page=100&type=all&page={page}"
+            url = f"{API_BASE}/orgs/{username}/repos?per_page={REST_PAGE_SIZE}&type=all&page={page}"
         elif authed:
             url = (
-                f"{API_BASE}/user/repos?per_page=100&affiliation=owner&visibility=all&page={page}"
+                f"{API_BASE}/user/repos?per_page={REST_PAGE_SIZE}&affiliation=owner&visibility=all&page={page}"
             )
         else:
-            url = f"{API_BASE}/users/{username}/repos?per_page=100&type=all&page={page}"
+            url = f"{API_BASE}/users/{username}/repos?per_page={REST_PAGE_SIZE}&type=all&page={page}"
 
         data = _github_get(url, headers=headers).json()
         if not data:
@@ -178,7 +182,7 @@ def fetch_branches(owner: str, repo: str, headers: dict) -> List[str]:
     branches: List[str] = []
     page = 1
     while True:
-        url = f"{API_BASE}/repos/{owner}/{repo}/branches?per_page=100&page={page}"
+        url = f"{API_BASE}/repos/{owner}/{repo}/branches?per_page={REST_PAGE_SIZE}&page={page}"
         data = _github_get(url, headers=headers).json()
         if not data:
             break
@@ -199,7 +203,7 @@ def fetch_branches_full(owner: str, repo: str, headers: dict) -> List[dict]:
     detailed: List[dict] = []
     page = 1
     while True:
-        url = f"{API_BASE}/repos/{owner}/{repo}/branches?per_page=100&page={page}"
+        url = f"{API_BASE}/repos/{owner}/{repo}/branches?per_page={REST_PAGE_SIZE}&page={page}"
         summaries = _github_get(url, headers=headers).json()
         if not summaries:
             break
@@ -235,7 +239,7 @@ def fetch_tags_full(owner: str, repo: str, headers: dict) -> List[dict]:
     tags: List[dict] = []
     page = 1
     while True:
-        url = f"{API_BASE}/repos/{owner}/{repo}/tags?per_page=100&page={page}"
+        url = f"{API_BASE}/repos/{owner}/{repo}/tags?per_page={REST_PAGE_SIZE}&page={page}"
         summaries = _github_get(url, headers=headers).json()
         if not summaries:
             break
@@ -297,11 +301,11 @@ def list_repos_branches_graphql(username: str, token: str, is_org: bool = False)
             f"""
             query($login: String!, $after: String) {{
               {root_field}(login: $login) {{
-                repositories(first: 100, after: $after, ownerAffiliations: OWNER) {{
+                repositories(first: {GRAPHQL_PAGE_SIZE}, after: $after, ownerAffiliations: OWNER) {{
                   pageInfo {{ hasNextPage endCursor }}
                   nodes {{
                     name
-                    refs(refPrefix: \"refs/heads/\", first: 100) {{
+                    refs(refPrefix: \"refs/heads/\", first: {GRAPHQL_PAGE_SIZE}) {{
                       pageInfo {{ hasNextPage endCursor }}
                       nodes {{ name }}
                     }}
@@ -320,7 +324,7 @@ def list_repos_branches_graphql(username: str, token: str, is_org: bool = False)
             repo_name = repo_node["name"]
             branches: List[str] = [ref["name"] for ref in repo_node["refs"]["nodes"]]
 
-            # Paginate branches if more than 100 exist
+            # Paginate branches if more than GRAPHQL_PAGE_SIZE exist
             br_after = repo_node["refs"]["pageInfo"].get("endCursor")
             br_has_next = repo_node["refs"]["pageInfo"].get("hasNextPage")
             while br_has_next:
@@ -328,7 +332,7 @@ def list_repos_branches_graphql(username: str, token: str, is_org: bool = False)
                     """
                     query($owner: String!, $name: String!, $after: String!) {
                       repository(owner: $owner, name: $name) {
-                        refs(refPrefix: \"refs/heads/\", first: 100, after: $after) {
+                        refs(refPrefix: \"refs/heads/\", first: {GRAPHQL_PAGE_SIZE}, after: $after) {
                           pageInfo { hasNextPage endCursor }
                           nodes { name }
                         }
@@ -348,7 +352,6 @@ def list_repos_branches_graphql(username: str, token: str, is_org: bool = False)
 
             result[repo_name] = branches
 
-        # Pagination for repositories
         if not repos_conn.get("pageInfo", {}).get("hasNextPage"):
             break
         repo_after = repos_conn["pageInfo"].get("endCursor")
@@ -361,10 +364,10 @@ def list_repos_branches_graphql(username: str, token: str, is_org: bool = False)
 # ---------------------------------------------------------------------------
 
 def _paginate_refs_graphql(owner: str, repo: str, after: str, ref_prefix: str, headers: dict) -> list[dict]:
-    """Return additional ref nodes (>100) for *repo* after *cursor*.
+    """Return additional ref nodes (>GRAPHQL_PAGE_SIZE) for *repo* after *cursor*.
 
     *ref_prefix* must be either "refs/heads/" or "refs/tags/". Each call
-    returns up to 100 nodes; we loop internally until the pages are
+    returns up to GRAPHQL_PAGE_SIZE nodes; we loop internally until the pages are
     exhausted so the caller receives a complete list.
     """
     all_nodes: list[dict] = []
@@ -373,7 +376,7 @@ def _paginate_refs_graphql(owner: str, repo: str, after: str, ref_prefix: str, h
             f"""
             query($owner: String!, $name: String!, $after: String!) {{
               repository(owner: $owner, name: $name) {{
-                refs(refPrefix: \"{ref_prefix}\", first: 100, after: $after) {{
+                refs(refPrefix: \"{ref_prefix}\", first: {GRAPHQL_PAGE_SIZE}, after: $after) {{
                   pageInfo {{ hasNextPage endCursor }}
                   nodes {{
                     name
@@ -406,7 +409,7 @@ def _paginate_refs_graphql(owner: str, repo: str, after: str, ref_prefix: str, h
 def fetch_repos_full_graphql(username: str, token: str, include_tags: bool, is_org: bool = False) -> tuple[dict, dict, dict]:
     """Return (repo_map, branches_map, tags_map) with full details via GraphQL.
 
-    *repo_map*   : repo_name → raw repository dictionary (includes first 100 refs)
+    *repo_map*   : repo_name → raw repository dictionary (includes first GRAPHQL_PAGE_SIZE refs)
     *branches_map*: repo_name → list of branch dictionaries (each with commit data)
     *tags_map*   : repo_name → list of tag dictionaries
     """
@@ -422,11 +425,11 @@ def fetch_repos_full_graphql(username: str, token: str, include_tags: bool, is_o
 
     root_field = "organization" if is_org else "user"
     while True:
-        query = textwrap.dedent(
+        repo_query = textwrap.dedent(
             f"""
             query($login: String!, $after: String) {{
               {root_field}(login: $login) {{
-                repositories(first: 100, after: $after, ownerAffiliations: OWNER) {{
+                repositories(first: {GRAPHQL_PAGE_SIZE}, after: $after, ownerAffiliations: OWNER) {{
                   pageInfo {{ hasNextPage endCursor }}
                   nodes {{
                     name
@@ -435,7 +438,7 @@ def fetch_repos_full_graphql(username: str, token: str, include_tags: bool, is_o
                     isPrivate
                     isFork
                     defaultBranchRef {{ name }}
-                    refs(refPrefix: \"refs/heads/\", first: 100) {{
+                    refs(refPrefix: \"refs/heads/\", first: {GRAPHQL_PAGE_SIZE}) {{
                       pageInfo {{ hasNextPage endCursor }}
                       nodes {{
                         name
@@ -450,7 +453,7 @@ def fetch_repos_full_graphql(username: str, token: str, include_tags: bool, is_o
                         }}
                       }}
                     }}
-                    tagRefs: refs(refPrefix: \"refs/tags/\", first: 100) {{
+                    tagRefs: refs(refPrefix: \"refs/tags/\", first: {GRAPHQL_PAGE_SIZE}) {{
                       pageInfo {{ hasNextPage endCursor }}
                       nodes {{
                         name
@@ -470,7 +473,7 @@ def fetch_repos_full_graphql(username: str, token: str, include_tags: bool, is_o
             """
         )
 
-        data = _github_graphql(query, {"login": username, "after": repo_after}, headers)
+        data = _github_graphql(repo_query, {"login": username, "after": repo_after}, headers)
         repos_conn = data[root_field]["repositories"]
 
         for node in repos_conn.get("nodes", []):
@@ -527,6 +530,11 @@ def fetch_repos_full_graphql(username: str, token: str, include_tags: bool, is_o
         repo_after = repos_conn["pageInfo"].get("endCursor")
 
     return repos, branch_map, tag_map
+
+
+def _apply_gql_page_size(query: str) -> str:
+    """Replace hardcoded 'first: 100' with the configured GRAPHQL_PAGE_SIZE."""
+    return query.replace("first: 100", f"first: {GRAPHQL_PAGE_SIZE}")
 
 
 def persist_branches(repo_br_map: Dict[str, List[str]], out_dir: str) -> None:
