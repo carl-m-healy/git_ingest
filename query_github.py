@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+import os  # placed before requests import to affect SSL verification
+
+# TEMPORARY: bypass SSL certificate verification for testing only.
+# Remove or comment out for production use.
+os.environ.setdefault("PYTHONHTTPSVERIFY", "0")
+
 """query_github.py
 
 Command-line utility to list all repositories and their branches for a
@@ -18,8 +25,6 @@ allows access to private repositories owned by the user or organization.
 import argparse
 import json
 import logging
-import os
-import re
 import sys
 import textwrap
 from datetime import datetime
@@ -40,54 +45,91 @@ API_BASE = "https://api.github.com"
 GRAPHQL_ENDPOINT = "https://api.github.com/graphql"
 API_CALL_COUNT = 0
 
+# Request / proxy resilience settings
+REQUEST_TIMEOUT = (5, 30)  # (connect_timeout, read_timeout) in seconds
+MAX_RETRIES = 3
+
 # Module-level logger so library functions are usable without invoking the
 # `cli()` entry-point (which reconfigures logging). Tests import the module
 # directly and call helpers, therefore we need a default logger instance to
 # avoid NameError.
 logger = logging.getLogger(__name__)
 
-def _github_get(url: str, headers: dict) -> requests.Response:
-    """Perform a GET request and raise helpful errors on failure with timing."""
-    global API_CALL_COUNT
-    API_CALL_COUNT += 1
-    start = time.perf_counter()
-    resp = requests.get(url, headers=headers)
-    try:
-        resp.raise_for_status()
-    except requests.HTTPError as exc:
-        duration = time.perf_counter() - start
-        logger.warning("GET %s failed after %.3fs: %s", url, duration, exc)
-        msg = f"GitHub API error {resp.status_code}: {resp.text} ({url})"
-        raise SystemExit(msg) from exc
-    duration = time.perf_counter() - start
-    logger.debug("GET %s completed in %.3fs", url, duration)
-    return resp
+def _github_get(url: str, headers: dict, *, timeout: tuple = REQUEST_TIMEOUT, max_retries: int = MAX_RETRIES) -> requests.Response:
+    """Perform a GET request with retry/backoff, specifically retrying on 504.
+
+    We retry on:
+        * HTTP 504 Gateway Timeout returned by the proxy
+        * Low-level connection / read timeouts raised by *requests*
+    A simple exponential back-off (2^attempt seconds) is used between tries.
+    """
+    for attempt in range(1, max_retries + 1):
+        global API_CALL_COUNT
+        API_CALL_COUNT += 1
+        start = time.perf_counter()
+        try:
+            resp = requests.get(url, headers=headers, timeout=timeout)
+            resp.raise_for_status()
+            duration = time.perf_counter() - start
+            logger.debug("GET %s completed in %.3fs", url, duration)
+            return resp
+        except requests.HTTPError as exc:
+            status = exc.response.status_code
+            # Only retry on 504; all other errors break immediately.
+            if status != 504 or attempt == max_retries:
+                duration = time.perf_counter() - start
+                logger.warning("GET %s failed after %.3fs: %s", url, duration, exc)
+                raise SystemExit(f"GitHub API error {status}: {exc.response.text} ({url})") from exc
+        except (requests.Timeout, requests.ConnectionError) as exc:
+            # Retry connection/timeout errors up to *max_retries*
+            if attempt == max_retries:
+                duration = time.perf_counter() - start
+                logger.warning("GET %s connection error after %.3fs: %s", url, duration, exc)
+                raise SystemExit(f"GitHub connection error: {exc}") from exc
+        # Exponential back-off before the next attempt
+        sleep_s = 2 ** attempt
+        logger.info("Retrying GET %s in %ds (attempt %d/%d)...", url, sleep_s, attempt, max_retries)
+        time.sleep(sleep_s)
 
 
-def _github_graphql(query: str, variables: dict, headers: dict) -> dict:
-    """Execute a GitHub GraphQL query and return the data payload with timing."""
-    global API_CALL_COUNT
-    API_CALL_COUNT += 1
-    start = time.perf_counter()
-    resp = requests.post(
-        GRAPHQL_ENDPOINT,
-        json={"query": query, "variables": variables},
-        headers=headers,
-    )
-    try:
-        resp.raise_for_status()
-    except requests.HTTPError as exc:
-        duration = time.perf_counter() - start
-        logger.warning("GraphQL request failed after %.3fs: %s", duration, exc)
-        raise SystemExit(f"GitHub GraphQL error {resp.status_code}: {resp.text}") from exc
-
-    duration = time.perf_counter() - start
-    logger.debug("GraphQL request completed in %.3fs", duration)
-
-    payload = resp.json()
-    if payload.get("errors"):
-        raise SystemExit(f"GitHub GraphQL errors: {payload['errors']}")
-    return payload.get("data", {})
+def _github_graphql(query: str, variables: dict, headers: dict, *, timeout: tuple = REQUEST_TIMEOUT, max_retries: int = MAX_RETRIES) -> dict:
+    """Execute a GraphQL query with retry/backoff logic mirroring *_github_get*."""
+    for attempt in range(1, max_retries + 1):
+        global API_CALL_COUNT
+        API_CALL_COUNT += 1
+        start = time.perf_counter()
+        try:
+            resp = requests.post(
+                GRAPHQL_ENDPOINT,
+                json={"query": query, "variables": variables},
+                headers=headers,
+                timeout=timeout,
+            )
+            resp.raise_for_status()
+            duration = time.perf_counter() - start
+            logger.debug("GraphQL request completed in %.3fs", duration)
+            payload = resp.json()
+            if payload.get("errors"):
+                raise SystemExit(f"GitHub GraphQL errors: {payload['errors']}")
+            return payload.get("data", {})
+        except requests.HTTPError as exc:
+            status = exc.response.status_code
+            if status != 504 or attempt == max_retries:
+                duration = time.perf_counter() - start
+                logger.warning("GraphQL request failed after %.3fs: %s", duration, exc)
+                raise SystemExit(
+                    f"GitHub GraphQL error {status}: {exc.response.text}"
+                ) from exc
+        except (requests.Timeout, requests.ConnectionError) as exc:
+            if attempt == max_retries:
+                duration = time.perf_counter() - start
+                logger.warning("GraphQL connection error after %.3fs: %s", duration, exc)
+                raise SystemExit(f"GitHub connection error: {exc}") from exc
+        sleep_s = 2 ** attempt
+        logger.info(
+            "Retrying GraphQL request in %ds (attempt %d/%d)...", sleep_s, attempt, max_retries
+        )
+        time.sleep(sleep_s)
 
 
 def _sanitize(name: str) -> str:
