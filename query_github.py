@@ -13,7 +13,7 @@ specified GitHub user or organization.
 
 Usage:
   python query_github.py carl-m-healy            # unauthenticated (public repos)
-  python query_github.py carl-m-healy --json     # pretty-print JSON
+  python query_github.py carl-m-healys --json     # pretty-print JSON
   python query_github.py carl-m-healy --token <PERSONAL_ACCESS_TOKEN>
   python query_github.py carl-m-healy --graphql  # use GitHub GraphQL API (v4)
   python query_github.py my-org --org           # query organization instead of user
@@ -50,8 +50,8 @@ REQUEST_TIMEOUT = (5, 30)  # (connect_timeout, read_timeout) in seconds
 MAX_RETRIES = 3
 
 # Paging sizes tunable via environment (smaller sizes help stay under strict proxy timeouts)
-REST_PAGE_SIZE = int(os.getenv("GITHUB_REST_PAGE_SIZE", "50"))  # default 50 items
-GRAPHQL_PAGE_SIZE = int(os.getenv("GITHUB_GRAPHQL_PAGE_SIZE", "50"))  # default 50 nodes
+REST_PAGE_SIZE = int(os.getenv("GITHUB_REST_PAGE_SIZE", "10"))  # default 50 items
+GRAPHQL_PAGE_SIZE = int(os.getenv("GITHUB_GRAPHQL_PAGE_SIZE", "10"))  # default 50 nodes
 
 # Module-level logger so library functions are usable without invoking the
 # `cli()` entry-point (which reconfigures logging). Tests import the module
@@ -492,17 +492,7 @@ def fetch_repos_full_graphql(username: str, token: str, include_tags: bool, is_o
                 after = node["refs"]["pageInfo"]["endCursor"]
                 extra = _paginate_refs_graphql(username, name, after, "refs/heads/", headers)
                 branches.extend([_norm_branch(b) for b in extra])
-            # Enrich each branch with full commit detail via REST so output matches REST persistence
-            for br in branches:
-                sha = br.get("commit", {}).get("sha")
-                if sha and ("url" not in br.get("commit_full", {})):
-                    try:
-                        commit_json = _github_get(f"{API_BASE}/repos/{username}/{name}/commits/{sha}", headers=headers).json()
-                        br["commit_full"] = commit_json
-                        if commit_json.get("commit"):
-                            br["commit"]["message"] = commit_json["commit"].get("message")
-                    except SystemExit:
-                        pass
+            # REST enrichment removed – GraphQL data already includes necessary commit details
             branch_map[name] = branches
 
             # Tags (optional)
@@ -511,18 +501,12 @@ def fetch_repos_full_graphql(username: str, token: str, include_tags: bool, is_o
                 if node["tagRefs"]["pageInfo"]["hasNextPage"]:
                     after_t = node["tagRefs"]["pageInfo"]["endCursor"]
                     tags.extend(_paginate_refs_graphql(username, name, after_t, "refs/tags/", headers))
-                # Enrich tag commits with full REST data
+                # Normalize tag commit objects using GraphQL data only
                 for tg in tags:
-                    sha = None
                     if isinstance(tg.get("target"), dict):
-                        sha = tg["target"].get("oid")
-                    if sha and ("commit_full" not in tg):
-                        try:
-                            commit_json = _github_get(f"{API_BASE}/repos/{username}/{name}/commits/{sha}", headers=headers).json()
-                            tg["commit_full"] = commit_json
-                            tg["commit"] = {"sha": sha, "message": commit_json.get("commit", {}).get("message")}
-                        except SystemExit:
-                            pass
+                        commit = tg.pop("target")
+                        tg["commit_full"] = commit
+                        tg["commit"] = {"sha": commit.get("oid"), "message": commit.get("messageHeadline")}
                 tag_map[name] = tags
 
         if not repos_conn.get("pageInfo", {}).get("hasNextPage"):
