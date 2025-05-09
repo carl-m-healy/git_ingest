@@ -421,10 +421,6 @@ def _paginate_refs_graphql(owner: str, repo: str, after: str, ref_prefix: str, h
                       isAdminEnforced
                       restrictsPushes
                       restrictsReviewDismissals
-                      requiredStatusChecks {{
-                        contexts
-                        strict
-                      }}
                     }}
                   }}
                 }}
@@ -495,8 +491,6 @@ def fetch_repos_full_graphql(username: str, token: str, include_tags: bool, is_o
                     hasWikiEnabled
                     hasProjectsEnabled
                     hasDiscussionsEnabled
-                    hasDownloadsEnabled
-                    hasPagesEnabled
                     isMirror
                     mirrorUrl
                     openGraphImageUrl
@@ -564,10 +558,6 @@ def fetch_repos_full_graphql(username: str, token: str, include_tags: bool, is_o
                           isAdminEnforced
                           restrictsPushes
                           restrictsReviewDismissals
-                          requiredStatusChecks {{
-                            contexts
-                            strict
-                          }}
                         }}
                       }}
                     }}
@@ -575,11 +565,14 @@ def fetch_repos_full_graphql(username: str, token: str, include_tags: bool, is_o
                       pageInfo {{ hasNextPage endCursor }}
                       nodes {{
                         name
+                        prefix
                         target {{
                           ... on Commit {{
                             oid
                             committedDate
                             messageHeadline
+                            author {{ name email date }}
+                            committer {{ name email date }}
                           }}
                         }}
                       }}
