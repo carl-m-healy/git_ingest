@@ -10,7 +10,7 @@ from unittest.mock import patch
 @patch('query_github._github_graphql')
 def test_fetch_repos_full_graphql_user_simple(mock_target_function):
     """Test fetch_repos_full_graphql for a user with 1 repo, branches, tags, no pagination."""
-    user_repo_fetch_simple = {"user": {"repositories": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"name": "repo1_user", "description": "Test Repo 1 User", "url": "", "stargazerCount": 1, "forkCount": 1, "isFork": False, "isPrivate": False, "primaryLanguage": None, "createdAt": "2023-01-01T00:00:00Z", "updatedAt": "2023-01-01T00:00:00Z", "pushedAt": "2023-01-01T00:00:00Z", "refs": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"name": "main_user"}, {"name": "dev_user"}]}, "tags": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"name": "v1.0_user"}, {"name": "v1.1_user"}]}}]}}}
+    user_repo_fetch_simple = {"user": {"repositories": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"name": "repo1_user", "description": "Test Repo 1 User", "url": "", "stargazerCount": 1, "forkCount": 1, "isFork": False, "isPrivate": False, "primaryLanguage": None, "createdAt": "2023-01-01T00:00:00Z", "updatedAt": "2023-01-01T00:00:00Z", "pushedAt": "2023-01-01T00:00:00Z", "refs": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"name": "main_user", "target": {"oid": "main_oid_user_simple", "messageHeadline": "Initial commit", "message": "Test commit message."}}]}, "tags": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"name": "v1.0_user", "target": {"oid": "tag_oid_user_simple", "messageHeadline": "Release v1.0", "message": "Test commit message."}}]}}]}}}
     api_calls_user_simple = []
     call_count_user_simple = 0
 
@@ -36,8 +36,14 @@ def test_fetch_repos_full_graphql_user_simple(mock_target_function):
     
     assert len(repo_map) == 1
     assert "repo1_user" in repo_map and repo_map["repo1_user"]["description"] == "Test Repo 1 User"
-    assert "repo1_user" in branch_map_full and sorted([b["name"] for b in branch_map_full["repo1_user"]]) == sorted(["main_user", "dev_user"])
-    assert "repo1_user" in tag_map_full and sorted([t["name"] for t in tag_map_full["repo1_user"]]) == sorted(["v1.0_user", "v1.1_user"])
+    assert "repo1_user" in branch_map_full and branch_map_full["repo1_user"][0]["name"] == "main_user"
+    assert branch_map_full["repo1_user"][0]["target"]["oid"] == "main_oid_user_simple"
+    assert branch_map_full["repo1_user"][0]["target"]["messageHeadline"] == "Initial commit"
+    assert branch_map_full["repo1_user"][0]["target"]["message"] == "Test commit message."
+    assert "repo1_user" in tag_map_full and tag_map_full["repo1_user"][0]["name"] == "v1.0_user"
+    assert tag_map_full["repo1_user"][0]["target"]["oid"] == "tag_oid_user_simple"
+    assert tag_map_full["repo1_user"][0]["target"]["messageHeadline"] == "Release v1.0"
+    assert tag_map_full["repo1_user"][0]["target"]["message"] == "Test commit message."
 
 @patch('query_github._github_graphql')
 def test_fetch_repos_full_graphql_user_no_tags(mock_target_function):
@@ -50,7 +56,7 @@ def test_fetch_repos_full_graphql_user_no_tags(mock_target_function):
                         "name": "repo_no_tag_test_user", "description": "Test repo, no tags fetched for user",
                         "primaryLanguage": None, "createdAt": "2023-01-01T00:00:00Z", "updatedAt": "2023-01-01T00:00:00Z", 
                         "pushedAt": "2023-01-01T00:00:00Z", "stargazerCount": 0, "forkCount": 0, "isFork": False, "isPrivate": False, "url": "",
-                        "refs": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"name": "main_no_tags_user"}]},
+                        "refs": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"name": "main_no_tags_user", "target": {"oid": "main_oid_no_tags_user", "messageHeadline": "Initial commit", "message": "Test commit message."}}]},
                         # No 'tags' key here as include_tags will be False, query won't ask for it
                     }
                 ]
@@ -84,15 +90,18 @@ def test_fetch_repos_full_graphql_user_no_tags(mock_target_function):
     assert len(repo_map) == 1
     assert "repo_no_tag_test_user" in repo_map
     assert "repo_no_tag_test_user" in branch_map_full and branch_map_full["repo_no_tag_test_user"][0]["name"] == "main_no_tags_user"
+    assert branch_map_full["repo_no_tag_test_user"][0]["target"]["oid"] == "main_oid_no_tags_user"
+    assert branch_map_full["repo_no_tag_test_user"][0]["target"]["messageHeadline"] == "Initial commit"
+    assert branch_map_full["repo_no_tag_test_user"][0]["target"]["message"] == "Test commit message."
     assert not tag_map_full # tag_map_full should be empty
 
 @patch('query_github._github_graphql')
 def test_fetch_repos_full_graphql_user_paginated_repos(mock_target_function):
-    user_repo_fetch_page1 = {"user": {"repositories": {"pageInfo": {"hasNextPage": True, "endCursor": "user_repo_cursor_p2"}, "nodes": [{"name": "user_repo_p1", "description": "User Paginated Repo 1", "url": "", "stargazerCount": 1, "forkCount": 1, "isFork": False, "isPrivate": False, "primaryLanguage": None, "createdAt": "2023-01-01T00:00:00Z", "updatedAt": "2023-01-01T00:00:00Z", "pushedAt": "2023-01-01T00:00:00Z", "refs": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"name": "main_p1"}]}, "tags": {"pageInfo": {"hasNextPage": True, "endCursor": "user_tag_cursor_p1"}, "nodes": []}}]}}}
-    user_repo_fetch_page2 = {"user": {"repositories": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"name": "user_repo_p2", "description": "User Paginated Repo 2", "url": "", "stargazerCount": 2, "forkCount": 2, "isFork": False, "isPrivate": False, "primaryLanguage": None, "createdAt": "2023-01-01T00:00:00Z", "updatedAt": "2023-01-01T00:00:00Z", "pushedAt": "2023-01-01T00:00:00Z", "refs": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"name": "main_p2"}]}, "tags": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": []}}]}}}
+    user_repo_fetch_page1 = {"user": {"repositories": {"pageInfo": {"hasNextPage": True, "endCursor": "user_repo_cursor_p2"}, "nodes": [{"name": "user_repo_p1", "description": "User Paginated Repo 1", "url": "", "stargazerCount": 1, "forkCount": 1, "isFork": False, "isPrivate": False, "primaryLanguage": None, "createdAt": "2023-01-01T00:00:00Z", "updatedAt": "2023-01-01T00:00:00Z", "pushedAt": "2023-01-01T00:00:00Z", "refs": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"name": "main_p1", "target": {"oid": "main_oid_pag_repo1", "messageHeadline": "Commit for pag-repo1", "message": "Test commit message."}}]}, "tags": {"pageInfo": {"hasNextPage": True, "endCursor": "user_tag_cursor_p1"}, "nodes": []}}]}}}
+    user_repo_fetch_page2 = {"user": {"repositories": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"name": "user_repo_p2", "description": "User Paginated Repo 2", "url": "", "stargazerCount": 2, "forkCount": 2, "isFork": False, "isPrivate": False, "primaryLanguage": None, "createdAt": "2023-01-01T00:00:00Z", "updatedAt": "2023-01-01T00:00:00Z", "pushedAt": "2023-01-01T00:00:00Z", "refs": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"name": "main_p2", "target": {"oid": "main_oid_pag_repo2", "messageHeadline": "Commit for pag-repo2", "message": "Test commit message."}}]}, "tags": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": []}}]}}}
     # No separate branch calls needed for user_repo_p1 or user_repo_p2 as inline refs.hasNextPage=False
-    tag_fetch_repo_p1 = {"repository": {"tags": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"name": "v_p1"}]}}} # For user_repo_p1, called with after="user_tag_cursor_p1"
-    tag_fetch_repo_p2 = {"repository": {"tags": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"name": "v_p2"}]}}} # For user_repo_p2, called with after=None (fresh fetch)
+    tag_fetch_repo_p1 = {"repository": {"tags": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"name": "v_p1", "target": {"oid": "tag_oid_pag_repo1", "messageHeadline": "Tag for pag-repo1", "message": "Test commit message."}}]}}} # For user_repo_p1, called with after="user_tag_cursor_p1"
+    tag_fetch_repo_p2 = {"repository": {"tags": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"name": "v_p2", "target": {"oid": "tag_oid_pag_repo2", "messageHeadline": "Tag for pag-repo2", "message": "Test commit message."}}]}}} # For user_repo_p2, called with after=None (fresh fetch)
     api_calls_user_pag_repos = []
     call_count_user_pag_repos = 0
     
@@ -134,16 +143,28 @@ def test_fetch_repos_full_graphql_user_paginated_repos(mock_target_function):
     assert "user_repo_p1" in repo_map and repo_map["user_repo_p1"]["description"] == "User Paginated Repo 1"
     assert "user_repo_p2" in repo_map and repo_map["user_repo_p2"]["description"] == "User Paginated Repo 2"
     assert "user_repo_p1" in branch_map_full and branch_map_full["user_repo_p1"][0]["name"] == "main_p1"
+    assert branch_map_full["user_repo_p1"][0]["target"]["oid"] == "main_oid_pag_repo1"
+    assert branch_map_full["user_repo_p1"][0]["target"]["messageHeadline"] == "Commit for pag-repo1"
+    assert branch_map_full["user_repo_p1"][0]["target"]["message"] == "Test commit message."
     assert "user_repo_p1" in tag_map_full and tag_map_full["user_repo_p1"][0]["name"] == "v_p1"
+    assert tag_map_full["user_repo_p1"][0]["target"]["oid"] == "tag_oid_pag_repo1"
+    assert tag_map_full["user_repo_p1"][0]["target"]["messageHeadline"] == "Tag for pag-repo1"
+    assert tag_map_full["user_repo_p1"][0]["target"]["message"] == "Test commit message."
     assert "user_repo_p2" in branch_map_full and branch_map_full["user_repo_p2"][0]["name"] == "main_p2"
+    assert branch_map_full["user_repo_p2"][0]["target"]["oid"] == "main_oid_pag_repo2"
+    assert branch_map_full["user_repo_p2"][0]["target"]["messageHeadline"] == "Commit for pag-repo2"
+    assert branch_map_full["user_repo_p2"][0]["target"]["message"] == "Test commit message."
     assert "user_repo_p2" in tag_map_full and tag_map_full["user_repo_p2"][0]["name"] == "v_p2"
+    assert tag_map_full["user_repo_p2"][0]["target"]["oid"] == "tag_oid_pag_repo2"
+    assert tag_map_full["user_repo_p2"][0]["target"]["messageHeadline"] == "Tag for pag-repo2"
+    assert tag_map_full["user_repo_p2"][0]["target"]["message"] == "Test commit message."
 
 @patch('query_github._github_graphql')
 def test_fetch_repos_full_graphql_user_paginated_branches(mock_target_function):
     # user_repo_fetch_single_many_b: inline tags hasNextPage=False, paginated branches hasNextPage=True, endCursor="user_branch_cursor_inline_end"
-    user_repo_fetch_single_many_b = {"user": {"repositories": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"name": "repo_with_many_branches_user", "description": "User Repo with paginated branches", "url": "", "stargazerCount": 0, "forkCount": 0, "isFork": False, "isPrivate": False, "primaryLanguage": None, "createdAt": "2023-01-01T00:00:00Z", "updatedAt": "2023-01-01T00:00:00Z", "pushedAt": "2023-01-01T00:00:00Z", "refs": {"pageInfo": {"hasNextPage": True, "endCursor": "user_branch_cursor_inline_end"}, "nodes": [{"name": "main_for_user_branches"}]}, "tags": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"name": "user_tag_for_branches_repo"}]}}]}}}
-    user_branch_fetch_page1 = {"repository": {"refs": {"pageInfo": {"hasNextPage": True, "endCursor": "user_branch_cursor_page1_end"}, "nodes": [{"name": "user_branch_X"}]}}} # Fetched with after="user_branch_cursor_inline_end"
-    user_branch_fetch_page2 = {"repository": {"refs": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"name": "user_branch_Y"}]}}} # Fetched with after="user_branch_cursor_page1_end"
+    user_repo_fetch_single_many_b = {"user": {"repositories": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"name": "repo_with_many_branches_user", "description": "User Repo with paginated branches", "url": "", "stargazerCount": 0, "forkCount": 0, "isFork": False, "isPrivate": False, "primaryLanguage": None, "createdAt": "2023-01-01T00:00:00Z", "updatedAt": "2023-01-01T00:00:00Z", "pushedAt": "2023-01-01T00:00:00Z", "refs": {"pageInfo": {"hasNextPage": True, "endCursor": "user_branch_cursor_inline_end"}, "nodes": [{"name": "main_for_user_branches", "target": {"oid": "main_oid_user_branches", "messageHeadline": "Initial commit", "message": "Test commit message."}}]}, "tags": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"name": "user_tag_for_branches_repo", "target": {"oid": "tag_oid_user_branches", "messageHeadline": "Tag for branches repo", "message": "Test commit message."}}]}}]}}}
+    user_branch_fetch_page1 = {"repository": {"refs": {"pageInfo": {"hasNextPage": True, "endCursor": "user_branch_cursor_page1_end"}, "nodes": [{"name": "user_branch_X", "target": {"oid": "b1_oid_user_pb", "messageHeadline": "Branch 1 commit", "message": "Test commit message."}}]}}} # Fetched with after="user_branch_cursor_inline_end"
+    user_branch_fetch_page2 = {"repository": {"refs": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"name": "user_branch_Y", "target": {"oid": "b2_oid_user_pb", "messageHeadline": "Branch 2 commit", "message": "Test commit message."}}]}}} # Fetched with after="user_branch_cursor_page1_end"
     # No separate tag call needed for repo_with_many_branches_user as inline tags.hasNextPage=False
     api_calls_user_pag_branches = []
     call_count_user_pag_branches = 0
@@ -181,19 +202,23 @@ def test_fetch_repos_full_graphql_user_paginated_branches(mock_target_function):
     assert len(repo_map) == 1
     assert "repo_with_many_branches_user" in repo_map
     assert "repo_with_many_branches_user" in branch_map_full and len(branch_map_full["repo_with_many_branches_user"]) == 3 # initial + p1 + p2
-    branch_names = sorted([b["name"] for b in branch_map_full["repo_with_many_branches_user"]])
-    assert branch_names == sorted(["main_for_user_branches", "user_branch_X", "user_branch_Y"])
+    for b in branch_map_full["repo_with_many_branches_user"]:
+        assert 'message' in b['target']
+        assert b['target']['message'] == 'Test commit message.'
     assert "repo_with_many_branches_user" in tag_map_full and len(tag_map_full["repo_with_many_branches_user"]) == 1
     assert tag_map_full["repo_with_many_branches_user"][0]["name"] == "user_tag_for_branches_repo"
+    assert tag_map_full["repo_with_many_branches_user"][0]["target"]["oid"] == "tag_oid_user_branches"
+    assert tag_map_full["repo_with_many_branches_user"][0]["target"]["messageHeadline"] == "Tag for branches repo"
+    assert tag_map_full["repo_with_many_branches_user"][0]["target"]["message"] == "Test commit message."
 
 @patch('query_github._github_graphql')
 def test_fetch_repos_full_graphql_user_paginated_tags(mock_target_function):
     # Mock data definitions
     # user_repo_fetch_single_many_t: inline branches hasNextPage=False, inline tags hasNextPage=True, endCursor="user_tag_cursor_inline_end"
-    user_repo_fetch_single_many_t = {"user": {"repositories": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"name": "repo_with_many_tags_user", "description": "User Repo with paginated tags", "url": "", "stargazerCount": 0, "forkCount": 0, "isFork": False, "isPrivate": False, "primaryLanguage": None, "createdAt": "2023-01-01T00:00:00Z", "updatedAt": "2023-01-01T00:00:00Z", "pushedAt": "2023-01-01T00:00:00Z", "refs": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"name": "main_for_user_tags"}]}, "tags": {"pageInfo": {"hasNextPage": True, "endCursor": "user_tag_cursor_inline_end"}, "nodes": [{"name": "user_tag_initial"}]}}]}}}
+    user_repo_fetch_single_many_t = {"user": {"repositories": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"name": "repo_with_many_tags_user", "description": "User Repo with paginated tags", "url": "", "stargazerCount": 0, "forkCount": 0, "isFork": False, "isPrivate": False, "primaryLanguage": None, "createdAt": "2023-01-01T00:00:00Z", "updatedAt": "2023-01-01T00:00:00Z", "pushedAt": "2023-01-01T00:00:00Z", "refs": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"name": "main_for_user_tags", "target": {"oid": "main_oid_user_tags", "messageHeadline": "Initial commit", "message": "Test commit message."}}]}, "tags": {"pageInfo": {"hasNextPage": True, "endCursor": "user_tag_cursor_inline_end"}, "nodes": [{"name": "user_tag_initial", "target": {"oid": "tag_oid_user_tags", "messageHeadline": "Tag for tags repo", "message": "Test commit message."}}]}}]}}}
     # No separate branch call needed for repo_with_many_tags_user
-    user_tag_fetch_page1 = {"repository": {"tags": {"pageInfo": {"hasNextPage": True, "endCursor": "user_tag_cursor_page1_end"}, "nodes": [{"name": "user_tag_X", "target": {"oid": "tX_user"}}]}}} # Fetched with after="user_tag_cursor_inline_end"
-    user_tag_fetch_page2 = {"repository": {"tags": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"name": "user_tag_Y", "target": {"oid": "tY_user"}}]}}} # Fetched with after="user_tag_cursor_page1_end"
+    user_tag_fetch_page1 = {"repository": {"tags": {"pageInfo": {"hasNextPage": True, "endCursor": "user_tag_cursor_page1_end"}, "nodes": [{"name": "user_tag_X", "target": {"oid": "t1_oid_user_tags", "messageHeadline": "Tag X commit", "message": "Test commit message."}}]}}} # Fetched with after="user_tag_cursor_inline_end"
+    user_tag_fetch_page2 = {"repository": {"tags": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"name": "user_tag_Y", "target": {"oid": "t2_oid_user_tags", "messageHeadline": "Tag Y commit", "message": "Test commit message."}}]}}} # Fetched with after="user_tag_cursor_page1_end"
     api_calls_user_pag_tags = []
     call_count_user_pag_tags = 0
     
@@ -230,22 +255,26 @@ def test_fetch_repos_full_graphql_user_paginated_tags(mock_target_function):
     assert len(repo_map) == 1
     assert "repo_with_many_tags_user" in repo_map
     assert "repo_with_many_tags_user" in branch_map_full and len(branch_map_full["repo_with_many_tags_user"]) == 1 and branch_map_full["repo_with_many_tags_user"][0]["name"] == "main_for_user_tags"
+    assert branch_map_full["repo_with_many_tags_user"][0]["target"]["oid"] == "main_oid_user_tags"
+    assert branch_map_full["repo_with_many_tags_user"][0]["target"]["messageHeadline"] == "Initial commit"
+    assert branch_map_full["repo_with_many_tags_user"][0]["target"]["message"] == "Test commit message."
     assert "repo_with_many_tags_user" in tag_map_full and len(tag_map_full["repo_with_many_tags_user"]) == 3 # initial + p1 + p2
-    tag_names = sorted([t["name"] for t in tag_map_full["repo_with_many_tags_user"]])
-    assert tag_names == sorted(["user_tag_initial", "user_tag_X", "user_tag_Y"])
+    for t in tag_map_full["repo_with_many_tags_user"]:
+        assert 'message' in t['target']
+        assert t['target']['message'] == 'Test commit message.'
 
 @patch('query_github._github_graphql')
 def test_fetch_repos_full_graphql_user_paginated_branches_and_tags(mock_target_function):
     # user_repo_fetch_single_pag_b_t: paginated branches (inline + 2 pages), paginated tags (inline + 2 pages)
     user_repo_fetch_single_pag_b_t = {"user": {"repositories": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"name": "repo_user_pag_b_t", "description": "User Repo paginated B & T", "url": "", "stargazerCount": 0, "forkCount": 0, "isFork": False, "isPrivate": False, "primaryLanguage": None, "createdAt": "2023-01-01T00:00:00Z", "updatedAt": "2023-01-01T00:00:00Z", "pushedAt": "2023-01-01T00:00:00Z", 
-            "refs": {"pageInfo": {"hasNextPage": True, "endCursor": "user_b_t_branch_cursor_inline_end"}, "nodes": [{"name": "user_b_t_branch_main"}]}, 
-            "tags": {"pageInfo": {"hasNextPage": True, "endCursor": "user_b_t_tag_cursor_inline_end"}, "nodes": [{"name": "user_b_t_tag_v1"}]}}]}}}
+            "refs": {"pageInfo": {"hasNextPage": True, "endCursor": "user_b_t_branch_cursor_inline_end"}, "nodes": [{"name": "user_b_t_branch_main", "target": {"oid": "main_oid_user_b_t", "messageHeadline": "Initial commit", "message": "Test commit message."}}]}, 
+            "tags": {"pageInfo": {"hasNextPage": True, "endCursor": "user_b_t_tag_cursor_inline_end"}, "nodes": [{"name": "user_b_t_tag_v1", "target": {"oid": "tag_oid_user_b_t", "messageHeadline": "Tag v1 commit", "message": "Test commit message."}}]}}]}}}
         
-    user_b_t_branch_fetch_p1 = {"repository": {"refs": {"pageInfo": {"hasNextPage": True, "endCursor": "user_b_t_branch_cursor_page1_end"}, "nodes": [{"name": "user_b_t_branch_dev"}]}}} # after="user_b_t_branch_cursor_inline_end"
-    user_b_t_branch_fetch_p2 = {"repository": {"refs": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"name": "user_b_t_branch_feat"}]}}} # after="user_b_t_branch_cursor_page1_end"
+    user_b_t_branch_fetch_p1 = {"repository": {"refs": {"pageInfo": {"hasNextPage": True, "endCursor": "user_b_t_branch_cursor_page1_end"}, "nodes": [{"name": "user_b_t_branch_dev", "target": {"oid": "b1_oid_user_b_t", "messageHeadline": "Branch dev commit", "message": "Test commit message."}}]}}} # after="user_b_t_branch_cursor_inline_end"
+    user_b_t_branch_fetch_p2 = {"repository": {"refs": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"name": "user_b_t_branch_feat", "target": {"oid": "b2_oid_user_b_t", "messageHeadline": "Branch feat commit", "message": "Test commit message."}}]}}} # after="user_b_t_branch_cursor_page1_end"
         
-    user_b_t_tag_fetch_p1 = {"repository": {"tags": {"pageInfo": {"hasNextPage": True, "endCursor": "user_b_t_tag_cursor_page1_end"}, "nodes": [{"name": "user_b_t_tag_v2"}]}}} # after="user_b_t_tag_cursor_inline_end"
-    user_b_t_tag_fetch_p2 = {"repository": {"tags": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"name": "user_b_t_tag_v3"}]}}} # after="user_b_t_tag_cursor_page1_end"
+    user_b_t_tag_fetch_p1 = {"repository": {"tags": {"pageInfo": {"hasNextPage": True, "endCursor": "user_b_t_tag_cursor_page1_end"}, "nodes": [{"name": "user_b_t_tag_v2", "target": {"oid": "t1_oid_user_b_t", "messageHeadline": "Tag v2 commit", "message": "Test commit message."}}]}}} # after="user_b_t_tag_cursor_inline_end"
+    user_b_t_tag_fetch_p2 = {"repository": {"tags": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"name": "user_b_t_tag_v3", "target": {"oid": "t2_oid_user_b_t", "messageHeadline": "Tag v3 commit", "message": "Test commit message."}}]}}} # after="user_b_t_tag_cursor_page1_end"
         
     api_calls_user_pag_b_t = []
     call_count_user_pag_b_t = 0
@@ -294,10 +323,12 @@ def test_fetch_repos_full_graphql_user_paginated_branches_and_tags(mock_target_f
     assert len(repo_map) == 1
     assert "repo_user_pag_b_t" in repo_map
     assert "repo_user_pag_b_t" in branch_map_full and len(branch_map_full["repo_user_pag_b_t"]) == 3
-    branch_names = sorted([b["name"] for b in branch_map_full["repo_user_pag_b_t"]])
-    assert branch_names == sorted(["user_b_t_branch_main", "user_b_t_branch_dev", "user_b_t_branch_feat"])
+    for b in branch_map_full["repo_user_pag_b_t"]:
+        assert 'message' in b['target']
+        assert b['target']['message'] == 'Test commit message.'
     assert "repo_user_pag_b_t" in tag_map_full and len(tag_map_full["repo_user_pag_b_t"]) == 3
-    tag_names = sorted([t["name"] for t in tag_map_full["repo_user_pag_b_t"]])
-    assert tag_names == sorted(["user_b_t_tag_v1", "user_b_t_tag_v2", "user_b_t_tag_v3"])
+    for t in tag_map_full["repo_user_pag_b_t"]:
+        assert 'message' in t['target']
+        assert t['target']['message'] == 'Test commit message.'
 
 # === Organization Test Cases ===

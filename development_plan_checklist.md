@@ -28,12 +28,12 @@ Use this checklist to track implementation progress. Mark each task with `[x]` w
 - [x] Run tests.
 
 ## Phase 4 – Optimise GraphQL Query Fields
-- [ ] Add commit `message` / `messageBody` to commit fragment.
-- [ ] Extend tag query to follow annotated tags (`... on Tag { target { ... on Commit { ... } } }`).
-- [ ] Trim non-essential repository fields (e.g. full collaborator edges, topic details).
-- [ ] Update data-normalisation code to store new commit fields.
-- [ ] Adjust tests to validate new JSON shape.
-- [ ] Run tests.
+- [x] Add commit `message` / `messageBody` to commit fragment.
+- [x] Extend tag query to follow annotated tags (`... on Tag { target { ... on Commit { ... } } }`).
+- [x] Trim non-essential repository fields (e.g. full collaborator edges, topic details).
+- [x] Update data-normalisation code to store new commit fields.
+- [x] Adjust tests to validate new JSON shape.
+- [x] Run tests.
 
 ## Phase 5 – Tune Pagination Defaults
 - [ ] Increase default `GITHUB_GRAPHQL_PAGE_SIZE` to **50**.

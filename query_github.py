@@ -267,6 +267,7 @@ def fetch_repos_full_graphql(username: str, token: str, include_tags: bool, is_o
                     oid
                     committedDate
                     messageHeadline
+                    message
                     author { name email date }
                     committer { name email date }
                   }
@@ -279,6 +280,7 @@ def fetch_repos_full_graphql(username: str, token: str, include_tags: bool, is_o
                         oid
                         committedDate
                         messageHeadline
+                        message
                         author { name email date }
                         committer { name email date }
                       }
@@ -364,6 +366,7 @@ def fetch_repos_full_graphql(username: str, token: str, include_tags: bool, is_o
                             oid
                             committedDate
                             messageHeadline
+                            message
                             author {{ name email date }}
                             committer {{ name email date }}
                             parents(first: 5) {{
@@ -450,20 +453,9 @@ def fetch_repos_full_graphql(username: str, token: str, include_tags: bool, is_o
                                 oid
                                 committedDate
                                 messageHeadline
+                                message
                                 author {{ name email date }}
                                 committer {{ name email date }}
-                                parents(first: 5) {{
-                                  nodes {{ oid }}
-                                }}
-                                pushedDate
-                                status {{ state }}
-                                checkSuites(first: 5) {{
-                                  nodes {{
-                                    conclusion
-                                    status
-                                    app {{ name }}
-                                  }}
-                                }}
                               }}
                             }}
                             branchProtectionRule {{
@@ -518,6 +510,7 @@ def fetch_repos_full_graphql(username: str, token: str, include_tags: bool, is_o
                                 oid
                                 committedDate
                                 messageHeadline
+                                message
                                 author {{ name email date }}
                                 committer {{ name email date }}
                               }}
@@ -529,6 +522,10 @@ def fetch_repos_full_graphql(username: str, token: str, include_tags: bool, is_o
                                   ... on Commit {{
                                     oid
                                     committedDate
+                                    messageHeadline
+                                    message
+                                    author {{ name email date }}
+                                    committer {{ name email date }}
                                   }}
                                 }}
                               }}
