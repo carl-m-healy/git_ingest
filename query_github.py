@@ -380,6 +380,18 @@ def _paginate_refs_graphql(owner: str, repo: str, after: str, ref_prefix: str, h
                   pageInfo {{ hasNextPage endCursor }}
                   nodes {{
                     name
+                    prefix
+
+                    associatedPullRequests(first: 5) {{
+                      nodes {{
+                        title
+                        number
+                        state
+                        merged
+                        mergedAt
+                        url
+                      }}
+                    }}
                     target {{
                       ... on Commit {{
                         oid
@@ -387,6 +399,31 @@ def _paginate_refs_graphql(owner: str, repo: str, after: str, ref_prefix: str, h
                         messageHeadline
                         author {{ name email date }}
                         committer {{ name email date }}
+                        parents(first: 5) {{
+                          nodes {{ oid }}
+                        }}
+                        pushedDate
+                        status {{ state }}
+                        checkSuites(first: 5) {{
+                          nodes {{
+                            conclusion
+                            status
+                            app {{ name }}
+                          }}
+                        }}
+                      }}
+                    }}
+                    branchProtectionRule {{
+                      pattern
+                      requiresApprovingReviews
+                      requiredApprovingReviewCount
+                      dismissesStaleReviews
+                      isAdminEnforced
+                      restrictsPushes
+                      restrictsReviewDismissals
+                      requiredStatusChecks {{
+                        contexts
+                        strict
                       }}
                     }}
                   }}
@@ -432,16 +469,72 @@ def fetch_repos_full_graphql(username: str, token: str, include_tags: bool, is_o
                 repositories(first: {GRAPHQL_PAGE_SIZE}, after: $after, ownerAffiliations: OWNER) {{
                   pageInfo {{ hasNextPage endCursor }}
                   nodes {{
+                    id
                     name
-                    url
+                    nameWithOwner
                     description
+                    url
+                    sshUrl
+                    homepageUrl
+                    createdAt
+                    updatedAt
+                    pushedAt
+                    diskUsage
+                    forkCount
+                    stargazerCount
+                    watchers {{ totalCount }}
+                    languages(first: 10) {{ totalCount edges {{ size node {{ name color }} }} }}
+                    repositoryTopics(first: 10) {{ edges {{ node {{ topic {{ name }} }} }} }}
+                    collaborators(first: 10) {{ totalCount edges {{ node {{ login name url }} }} }}
+                    visibility
+                    licenseInfo {{ name spdxId url }}
                     isPrivate
                     isFork
+                    isTemplate
+                    hasIssuesEnabled
+                    hasWikiEnabled
+                    hasProjectsEnabled
+                    hasDiscussionsEnabled
+                    hasDownloadsEnabled
+                    hasPagesEnabled
+                    isMirror
+                    mirrorUrl
+                    openGraphImageUrl
+                    webCommitSignoffRequired
+                    autoMergeAllowed
+                    deleteBranchOnMerge
+                    mergeCommitAllowed
+                    rebaseMergeAllowed
+                    squashMergeAllowed
+                    parent {{ nameWithOwner url }}
+                    owner {{ login url __typename }}
+                    openIssues: issues(states: OPEN) {{ totalCount }}
+                    closedIssues: issues(states: CLOSED) {{ totalCount }}
+                    openPRs: pullRequests(states: OPEN) {{ totalCount }}
+                    closedPRs: pullRequests(states: CLOSED) {{ totalCount }}
+                    mergedPRs: pullRequests(states: MERGED) {{ totalCount }}
+                    releases {{ totalCount }}
+                    deployments {{ totalCount }}
+                    codeOfConduct {{ name key url }}
+                    securityPolicyUrl
+                    vulnerabilityAlerts {{ totalCount }}
                     defaultBranchRef {{ name }}
                     refs(refPrefix: \"refs/heads/\", first: {GRAPHQL_PAGE_SIZE}) {{
                       pageInfo {{ hasNextPage endCursor }}
                       nodes {{
                         name
+                        prefix
+
+                        associatedPullRequests(first: 5) {{
+                          nodes {{
+                            title
+                            number
+                            state
+                            merged
+                            mergedAt
+                            url
+                          }}
+                        }}
                         target {{
                           ... on Commit {{
                             oid
@@ -449,6 +542,31 @@ def fetch_repos_full_graphql(username: str, token: str, include_tags: bool, is_o
                             messageHeadline
                             author {{ name email date }}
                             committer {{ name email date }}
+                            parents(first: 5) {{
+                              nodes {{ oid }}
+                            }}
+                            pushedDate
+                            status {{ state }}
+                            checkSuites(first: 5) {{
+                              nodes {{
+                                conclusion
+                                status
+                                app {{ name }}
+                              }}
+                            }}
+                          }}
+                        }}
+                        branchProtectionRule {{
+                          pattern
+                          requiresApprovingReviews
+                          requiredApprovingReviewCount
+                          dismissesStaleReviews
+                          isAdminEnforced
+                          restrictsPushes
+                          restrictsReviewDismissals
+                          requiredStatusChecks {{
+                            contexts
+                            strict
                           }}
                         }}
                       }}
